@@ -1,0 +1,11 @@
+# Optional visualization dependencies for Droit KE Workbench
+# Install with: pip install -r requirements-visualization.txt
+#
+# NOTE: The tree visualizations use a custom HTML renderer that works
+# without any external dependencies. This file is kept for potential
+# future visualization enhancements.
+#
+# Supertree is for ML decision tree visualization (sklearn models),
+# NOT for arbitrary tree data structures. We don't currently use it.
+
+# No additional dependencies required - tree visualization uses pure HTML/CSS/JS

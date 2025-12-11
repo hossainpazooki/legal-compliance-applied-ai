@@ -36,6 +36,10 @@ class RuleContextPayload:
     primary_span: str  # main text span backing the rule
     before: list[str]  # a few preceding paragraphs
     after: list[str]  # a few following paragraphs
+    # Legal corpus metadata
+    document_title: str | None = None
+    citation: str | None = None
+    source_url: str | None = None
 
 
 @dataclass
@@ -69,6 +73,9 @@ class SemanticHit:
     snippet: str
     score: float
     rule_id: str | None  # if mappable to a rule
+    source_type: str | None = None  # "legal_text" or None for rule-derived
+    document_title: str | None = None  # title of source document
+    has_rule_coverage: bool = True  # False if legal text with no mapped rule
 
 
 @dataclass
@@ -106,7 +113,26 @@ def _get_context_retriever() -> RuleContextRetriever:
         loader = _get_rule_loader()
         _context_retriever = RuleContextRetriever(rule_loader=loader)
 
-        # Try to load any indexed documents
+        # Index legal corpus from data/legal/
+        from .corpus_loader import load_all_legal_documents
+
+        for doc in load_all_legal_documents():
+            try:
+                _context_retriever.index_document(
+                    document_id=doc.document_id,
+                    text=doc.text,
+                    metadata={
+                        "document_title": doc.title,
+                        "citation": doc.citation,
+                        "jurisdiction": doc.jurisdiction,
+                        "source_url": doc.source_url,
+                        "source_type": "legal_text",
+                    },
+                )
+            except Exception:
+                pass  # Ignore indexing errors
+
+        # Also try to load any loose txt files in data/
         data_dir = Path(__file__).parent.parent.parent / "data"
         if data_dir.exists():
             for txt_file in data_dir.glob("*.txt"):
@@ -187,6 +213,8 @@ def get_rule_context(rule_id: str) -> RuleContextPayload | None:
     Returns:
         RuleContextPayload or None if rule not found.
     """
+    from .corpus_loader import load_legal_document, LegalCorpusError
+
     loader = _get_rule_loader()
     rule = loader.get_rule(rule_id)
 
@@ -202,12 +230,44 @@ def get_rule_context(rule_id: str) -> RuleContextPayload | None:
     section = rule.source.section if rule.source else None
     pages = rule.source.pages if rule.source else None
 
-    # Build primary span from source passages
+    # Try to get legal document metadata
+    document_title = None
+    citation = None
+    source_url = None
+
+    if document_id:
+        try:
+            legal_doc = load_legal_document(document_id)
+            document_title = legal_doc.title
+            citation = legal_doc.citation
+            source_url = legal_doc.source_url
+
+            # Try to find specific article text from legal corpus
+            if article:
+                article_text = legal_doc.find_article_text(article)
+                if article_text:
+                    # Use legal corpus text as primary span
+                    context.source_passages = []  # Clear retrieval results
+        except LegalCorpusError:
+            pass  # Document not in corpus, use retrieval results
+
+    # Build primary span from source passages or legal corpus
     primary_span = ""
     before_paragraphs: list[str] = []
     after_paragraphs: list[str] = []
 
-    if context.source_passages:
+    # Try to get article text directly from legal corpus
+    if document_id and article:
+        try:
+            legal_doc = load_legal_document(document_id)
+            article_text = legal_doc.find_article_text(article)
+            if article_text:
+                primary_span = article_text
+        except LegalCorpusError:
+            pass
+
+    # Fall back to retrieval results
+    if not primary_span and context.source_passages:
         # First passage is the primary span
         primary_span = context.source_passages[0].text
 
@@ -218,8 +278,9 @@ def get_rule_context(rule_id: str) -> RuleContextPayload | None:
                 before_paragraphs.append(passage.text)
             else:
                 after_paragraphs.append(passage.text)
-    else:
-        # Fall back to rule description if no passages found
+
+    # Fall back to rule description if no passages found
+    if not primary_span:
         primary_span = rule.description or f"No source text found for {rule_id}"
 
     return RuleContextPayload(
@@ -231,6 +292,9 @@ def get_rule_context(rule_id: str) -> RuleContextPayload | None:
         primary_span=primary_span,
         before=before_paragraphs,
         after=after_paragraphs,
+        document_title=document_title,
+        citation=citation,
+        source_url=source_url,
     )
 
 
@@ -458,11 +522,19 @@ def _search_semantic(query: str, max_hits: int) -> SearchResult:
 
         # Try to map to a rule
         rule_id = None
+        has_rule_coverage = True
         if document_id:
             key = (document_id, _normalize_article(article))
             matching_rules = source_to_rules.get(key, [])
             if matching_rules:
                 rule_id = matching_rules[0]  # Pick first matching rule
+            else:
+                # Legal text hit with no corresponding rule
+                has_rule_coverage = False
+
+        # Get source type and document title from metadata
+        source_type = result.metadata.get("source_type")
+        document_title = result.metadata.get("document_title")
 
         # Truncate snippet
         snippet = result.text
@@ -476,6 +548,9 @@ def _search_semantic(query: str, max_hits: int) -> SearchResult:
                 snippet=snippet,
                 score=round(result.score, 3),
                 rule_id=rule_id,
+                source_type=source_type,
+                document_title=document_title,
+                has_rule_coverage=has_rule_coverage,
             )
         )
 

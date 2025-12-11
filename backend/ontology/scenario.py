@@ -37,6 +37,20 @@ class Scenario(BaseModel):
     is_significant: bool | None = None
     reserve_value_eur: float | None = None
 
+    # Reserve/custody attributes
+    has_reserve: bool | None = None
+    reserve_custodian_authorized: bool | None = None
+    under_eba_supervision: bool | None = None
+    enhanced_requirements_met: bool | None = None
+
+    # RWA-specific attributes
+    is_regulated_market_issuer: bool | None = None
+    rwa_authorized: bool | None = None
+    disclosure_current: bool | None = None
+    total_token_value_eur: float | None = None
+    custodian_authorized: bool | None = None
+    assets_segregated: bool | None = None
+
     # Flexible additional fields
     extra: dict[str, Any] = Field(default_factory=dict)
 

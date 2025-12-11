@@ -272,6 +272,24 @@ Exceptions should be modeled as early exits in the decision tree, not as modific
 | Utility Token | — | Provides access to a good/service; lighter regulation |
 | Other Crypto-Asset | — | Catch-all for non-ART, non-EMT, non-utility tokens |
 
+## RWA Instrument Type Taxonomy
+
+Real-World Asset (RWA) tokens represent ownership or claims on off-chain assets that are tokenized on-chain.
+
+| Type | Definition | Key Characteristics |
+|------|------------|---------------------|
+| RWAToken | Generic tokenized real-world asset | Base type for any tokenized RWA |
+| RWADebt | Tokenized debt instrument | Bonds, loans, receivables; requires disclosure of credit terms |
+| RWAEquity | Tokenized equity | Shares, fund units; subject to securities regulations |
+| RWAProperty | Tokenized real estate | Property rights, REITs; requires property valuation and title verification |
+
+### RWA-Specific Actors
+
+| Actor Type | Description |
+|------------|-------------|
+| AssetOriginator | Entity that owns/originates the real-world asset being tokenized |
+| Custodian | Entity responsible for safekeeping the underlying asset or its documentation |
+
 ## Activity Taxonomy
 
 | Activity | Description | Relevant MiCA Articles |
@@ -280,6 +298,14 @@ Exceptions should be modeled as early exits in the decision tree, not as modific
 | admission_to_trading | Seeking trading platform listing | Art. 4-14, Art. 36 |
 | custody | Safekeeping crypto-assets | Art. 75 |
 | exchange | Trading crypto for fiat/other crypto | Art. 76 |
+
+## RWA Activity Taxonomy
+
+| Activity | Description | Regulatory Considerations |
+|----------|-------------|---------------------------|
+| tokenization | Converting real-world asset to on-chain token | Requires legal structuring, asset verification, smart contract deployment |
+| disclosure | Ongoing disclosure of asset information | Periodic reporting on asset performance, valuation updates |
+| valuation | Asset valuation and pricing | Independent valuation, mark-to-market requirements |
 
 ## Future Extensions
 

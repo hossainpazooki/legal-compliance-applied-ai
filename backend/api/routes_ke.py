@@ -25,6 +25,19 @@ from backend.rules.schema import (
 from backend.verify import ConsistencyEngine, verify_rule
 from backend.analytics import ErrorPatternAnalyzer, DriftDetector
 from backend.rag import RuleContextRetriever
+from backend.visualization import (
+    build_rulebook_outline,
+    build_decision_trace_tree,
+    build_ontology_tree,
+    build_corpus_rule_links,
+    build_decision_tree_structure,
+    is_supertree_available,
+    render_rulebook_outline_html,
+    render_decision_trace_html,
+    render_ontology_tree_html,
+    render_corpus_links_html,
+)
+from backend.ontology import Scenario
 
 
 router = APIRouter(prefix="/ke", tags=["knowledge-engineering"])
@@ -523,3 +536,211 @@ def get_rule_reviews(rule_id: str) -> list[dict]:
     ]
 
     return reviews
+
+
+# =============================================================================
+# Chart Visualization Endpoints
+# =============================================================================
+
+class ChartDataResponse(BaseModel):
+    """Response containing tree data for visualization."""
+    chart_type: str
+    data: dict
+    supertree_available: bool
+
+
+class ChartHtmlResponse(BaseModel):
+    """Response containing rendered HTML chart."""
+    chart_type: str
+    html: str
+    supertree_available: bool
+
+
+@router.get("/charts/supertree-status")
+def get_supertree_status() -> dict:
+    """Check if Supertree visualization is available."""
+    return {
+        "available": is_supertree_available(),
+        "message": (
+            "Supertree is available for interactive charts"
+            if is_supertree_available()
+            else "Install supertree for interactive charts: pip install -r requirements-visualization.txt"
+        ),
+    }
+
+
+@router.get("/charts/rulebook-outline", response_model=ChartDataResponse)
+def get_rulebook_outline_chart():
+    """Get rulebook outline tree data for visualization."""
+    loader = get_rule_loader()
+    rules = loader.get_all_rules()
+    tree_data = build_rulebook_outline(rules)
+
+    return ChartDataResponse(
+        chart_type="rulebook_outline",
+        data=tree_data,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.get("/charts/rulebook-outline/html", response_model=ChartHtmlResponse)
+def get_rulebook_outline_html():
+    """Get rulebook outline as rendered HTML."""
+    loader = get_rule_loader()
+    rules = loader.get_all_rules()
+    tree_data = build_rulebook_outline(rules)
+    html = render_rulebook_outline_html(tree_data)
+
+    return ChartHtmlResponse(
+        chart_type="rulebook_outline",
+        html=html,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.get("/charts/ontology", response_model=ChartDataResponse)
+def get_ontology_chart():
+    """Get ontology tree data for visualization."""
+    tree_data = build_ontology_tree()
+
+    return ChartDataResponse(
+        chart_type="ontology",
+        data=tree_data,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.get("/charts/ontology/html", response_model=ChartHtmlResponse)
+def get_ontology_html():
+    """Get ontology tree as rendered HTML."""
+    tree_data = build_ontology_tree()
+    html = render_ontology_tree_html(tree_data)
+
+    return ChartHtmlResponse(
+        chart_type="ontology",
+        html=html,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.get("/charts/corpus-links", response_model=ChartDataResponse)
+def get_corpus_links_chart():
+    """Get corpus-to-rule links tree data for visualization."""
+    loader = get_rule_loader()
+    rules = loader.get_all_rules()
+    tree_data = build_corpus_rule_links(rules)
+
+    return ChartDataResponse(
+        chart_type="corpus_links",
+        data=tree_data,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.get("/charts/corpus-links/html", response_model=ChartHtmlResponse)
+def get_corpus_links_html():
+    """Get corpus-to-rule links as rendered HTML."""
+    loader = get_rule_loader()
+    rules = loader.get_all_rules()
+    tree_data = build_corpus_rule_links(rules)
+    html = render_corpus_links_html(tree_data)
+
+    return ChartHtmlResponse(
+        chart_type="corpus_links",
+        html=html,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.get("/charts/decision-tree/{rule_id}", response_model=ChartDataResponse)
+def get_decision_tree_chart(rule_id: str):
+    """Get decision tree structure for a specific rule."""
+    loader = get_rule_loader()
+    rule = loader.get_rule(rule_id)
+
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+
+    if rule.decision_tree is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Rule {rule_id} has no decision tree"
+        )
+
+    tree_data = build_decision_tree_structure(rule.decision_tree)
+
+    return ChartDataResponse(
+        chart_type="decision_tree",
+        data=tree_data or {},
+        supertree_available=is_supertree_available(),
+    )
+
+
+class EvaluateForTraceRequest(BaseModel):
+    """Request to evaluate a rule and get decision trace."""
+    scenario: dict = Field(..., description="Scenario attributes as key-value pairs")
+
+
+@router.post("/charts/decision-trace/{rule_id}", response_model=ChartDataResponse)
+def get_decision_trace_chart(rule_id: str, request: EvaluateForTraceRequest):
+    """Evaluate a rule against a scenario and return decision trace tree.
+
+    This endpoint evaluates the rule and returns the trace of the evaluation
+    path through the decision tree.
+    """
+    loader = get_rule_loader()
+    rule = loader.get_rule(rule_id)
+
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+
+    # Create scenario from request
+    scenario = Scenario(**request.scenario)
+
+    # Evaluate rule
+    engine = DecisionEngine(loader)
+    result = engine.evaluate(scenario, rule_id)
+
+    # Build trace tree
+    tree_data = build_decision_trace_tree(
+        trace=result.trace,
+        decision=result.decision,
+        rule_id=rule_id,
+    )
+
+    return ChartDataResponse(
+        chart_type="decision_trace",
+        data=tree_data,
+        supertree_available=is_supertree_available(),
+    )
+
+
+@router.post("/charts/decision-trace/{rule_id}/html", response_model=ChartHtmlResponse)
+def get_decision_trace_html(rule_id: str, request: EvaluateForTraceRequest):
+    """Evaluate a rule against a scenario and return decision trace as HTML."""
+    loader = get_rule_loader()
+    rule = loader.get_rule(rule_id)
+
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+
+    # Create scenario from request
+    scenario = Scenario(**request.scenario)
+
+    # Evaluate rule
+    engine = DecisionEngine(loader)
+    result = engine.evaluate(scenario, rule_id)
+
+    # Build trace tree and render
+    tree_data = build_decision_trace_tree(
+        trace=result.trace,
+        decision=result.decision,
+        rule_id=rule_id,
+    )
+    html = render_decision_trace_html(tree_data)
+
+    return ChartHtmlResponse(
+        chart_type="decision_trace",
+        html=html,
+        supertree_available=is_supertree_available(),
+    )

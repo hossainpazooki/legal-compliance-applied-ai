@@ -150,6 +150,64 @@ let test_condition_construction () =
   | _ ->
     Alcotest.fail "Unexpected condition structure"
 
+(** Test RWA instrument construction *)
+let test_rwa_instrument_construction () =
+  let instrument = make_instrument
+    ~id:"rwa_token_001"
+    ~name:"Tokenized Property Fund"
+    ~instrument_type:RWAProperty
+    ~issuer:"originator_001"
+    ()
+  in
+  Alcotest.(check string) "instrument id" "rwa_token_001" instrument.id;
+  Alcotest.(check string) "instrument name" "Tokenized Property Fund" instrument.name;
+  Alcotest.(check (option string)) "issuer" (Some "originator_001") instrument.issuer;
+  (* Verify the type is RWAProperty *)
+  Alcotest.(check bool) "is RWAProperty"
+    true (instrument.instrument_type = RWAProperty)
+
+(** Test RWA activity construction *)
+let test_rwa_activity_construction () =
+  let activity = make_activity
+    ~id:"tokenization_001"
+    ~name:"Property Tokenization"
+    ~activity_type:Tokenization
+    ~performed_by:"originator_001"
+    ~involves_instrument:"rwa_token_001"
+    ()
+  in
+  Alcotest.(check string) "activity id" "tokenization_001" activity.id;
+  Alcotest.(check string) "activity name" "Property Tokenization" activity.name;
+  Alcotest.(check bool) "is Tokenization"
+    true (activity.activity_type = Tokenization)
+
+(** Test RWA actor construction *)
+let test_rwa_actor_construction () =
+  let actor = make_actor
+    ~id:"originator_001"
+    ~name:"Prime Real Estate Holdings"
+    ~actor_type:AssetOriginator
+    ~jurisdiction:"EU"
+    ()
+  in
+  Alcotest.(check string) "actor id" "originator_001" actor.id;
+  Alcotest.(check string) "actor name" "Prime Real Estate Holdings" actor.name;
+  Alcotest.(check bool) "is AssetOriginator"
+    true (actor.actor_type = AssetOriginator)
+
+(** Test RWA-specific obligation construction *)
+let test_rwa_obligation_construction () =
+  let obligation = make_obligation
+    ~actor:AssetOriginator
+    ~action:"Provide quarterly asset valuation reports"
+    ~condition:(InstrumentIs RWAProperty)
+    ()
+  in
+  Alcotest.(check bool) "modality is Obligation"
+    true (obligation.modality = Obligation);
+  Alcotest.(check string) "action"
+    "Provide quarterly asset valuation reports" obligation.action
+
 (** All ontology tests *)
 let () =
   Alcotest.run "Ontology" [
@@ -177,5 +235,11 @@ let () =
     ];
     "condition", [
       Alcotest.test_case "construction" `Quick test_condition_construction;
+    ];
+    "rwa", [
+      Alcotest.test_case "instrument construction" `Quick test_rwa_instrument_construction;
+      Alcotest.test_case "activity construction" `Quick test_rwa_activity_construction;
+      Alcotest.test_case "actor construction" `Quick test_rwa_actor_construction;
+      Alcotest.test_case "obligation construction" `Quick test_rwa_obligation_construction;
     ];
   ]

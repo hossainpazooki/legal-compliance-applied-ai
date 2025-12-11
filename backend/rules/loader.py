@@ -371,3 +371,45 @@ class RuleLoader:
         self._rules[rule_id] = updated_rule
 
         return updated_rule
+
+    def validate_corpus_coverage(self) -> dict[str, list[str]]:
+        """Validate that rule document_ids have corresponding legal corpus entries.
+
+        Returns:
+            Dict with 'valid', 'missing', and 'warnings' lists of rule_ids.
+        """
+        from backend.rag.corpus_loader import get_available_document_ids
+
+        available_docs = set(get_available_document_ids())
+        results = {
+            "valid": [],
+            "missing": [],
+            "warnings": [],
+        }
+
+        for rule in self._rules.values():
+            if not rule.source:
+                results["warnings"].append(rule.rule_id)
+                continue
+
+            doc_id = rule.source.document_id
+            if doc_id in available_docs:
+                results["valid"].append(rule.rule_id)
+            else:
+                results["missing"].append(rule.rule_id)
+
+        return results
+
+    def get_rules_by_document(self, document_id: str) -> list[Rule]:
+        """Get all rules that reference a specific document.
+
+        Args:
+            document_id: The document identifier to filter by.
+
+        Returns:
+            List of rules with matching source.document_id.
+        """
+        return [
+            rule for rule in self._rules.values()
+            if rule.source and rule.source.document_id == document_id
+        ]

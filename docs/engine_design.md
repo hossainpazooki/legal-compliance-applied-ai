@@ -14,8 +14,11 @@ The workbench provides tools for Knowledge Engineers to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Layer 5: KE Interfaces                       │
-│              (FastAPI /ke endpoints, CLI tools)                 │
+│                    Layer 6: KE Interfaces                       │
+│      (FastAPI /ke endpoints, Streamlit dashboard, CLI tools)    │
+├─────────────────────────────────────────────────────────────────┤
+│                 Layer 5: Visualization (Optional)               │
+│      (Supertree charts, tree adapters, HTML rendering)          │
 ├─────────────────────────────────────────────────────────────────┤
 │                    Layer 4: Internal RAG                        │
 │           (RuleContextRetriever, document indexing)             │
@@ -151,7 +154,111 @@ The internal RAG layer powers several KE workbench UI features:
 
 **Important**: Internal RAG is NOT exposed as a public `/ask` endpoint in this repo. It is strictly for KE tooling.
 
-## Layer 5: KE Interfaces
+### Legal Corpus Integration
+
+The workbench includes a small embedded legal corpus for MiCA, the EU DLT Pilot Regime, and the GENIUS Act (US stablecoin framework). These are normalized excerpts, not full official texts.
+
+#### Corpus Structure
+
+```
+data/legal/
+├── mica_2023/
+│   ├── meta.yaml           # Document metadata
+│   └── text_normalized.txt # Normalized excerpts
+├── dlt_pilot_2022/
+│   ├── meta.yaml
+│   └── text_normalized.txt
+└── genius_act_2025/
+    ├── meta.yaml
+    └── text_normalized.txt
+```
+
+Each `meta.yaml` contains:
+- `document_id`: Join key to rule `source.document_id`
+- `title`: Human-readable document title
+- `citation`: Official citation (e.g., "Regulation (EU) 2023/1114")
+- `jurisdiction`: "EU" or "US"
+- `source_url`: Link to official text
+
+#### Corpus Loader
+
+```python
+from backend.rag import load_legal_document, load_all_legal_documents
+
+# Load a specific document
+doc = load_legal_document("mica_2023")
+print(doc.title, doc.citation)
+print(doc.find_article_text("36"))  # Get Article 36 text
+
+# Load all documents
+docs = load_all_legal_documents()
+```
+
+#### Rule-Corpus Mapping
+
+Rules reference legal corpus via `source.document_id`:
+- MiCA rules: `document_id: mica_2023`
+- DLT Pilot rules: `document_id: dlt_pilot_2022`
+- GENIUS rules: `document_id: genius_act_2025`
+
+The `RuleLoader.validate_corpus_coverage()` method checks which rules have corresponding legal corpus entries.
+
+#### Coverage Gap Detection
+
+When searching the corpus, hits are tagged with:
+- `source_type: "legal_text"` for legal corpus hits
+- `has_rule_coverage: False` when a legal passage has no mapped rule
+
+This enables gap-finding UX: show ⚠️ "no formal rule yet" for legal text passages without corresponding rules.
+
+## Layer 5: Visualization (Optional)
+
+Provides tree-based visualizations for regulatory charts. Gracefully degrades when Supertree is not installed.
+
+### Components
+
+- **supertree_adapters.py**: Pure-Python adapters that convert rules/traces into nested dict/list structures
+- **supertree_utils.py**: Rendering helpers with optional Supertree dependency
+
+### Available Charts
+
+| Chart | Function | Description |
+|-------|----------|-------------|
+| Rulebook Outline | `build_rulebook_outline()` | Hierarchical view of rules by document |
+| Decision Trace | `build_decision_trace_tree()` | Evaluation path through a rule |
+| Ontology Browser | `build_ontology_tree()` | Actor/Instrument/Activity type hierarchy |
+| Corpus Links | `build_corpus_rule_links()` | Document → Article → Rule traceability |
+| Decision Tree | `build_decision_tree_structure()` | Rule's internal decision logic |
+
+### Optional Dependency
+
+```bash
+pip install -r requirements-visualization.txt
+```
+
+When Supertree is not installed:
+- `is_supertree_available()` returns `False`
+- Render functions return fallback HTML with install instructions
+- Data adapters work normally (no external dependencies)
+
+### Usage Pattern
+
+```python
+from backend.visualization import (
+    build_rulebook_outline,
+    render_rulebook_outline_html,
+    is_supertree_available,
+)
+
+# Get tree data (always works)
+rules = loader.get_all_rules()
+tree_data = build_rulebook_outline(rules)
+
+# Render HTML (graceful fallback if Supertree not installed)
+html = render_rulebook_outline_html(tree_data)
+```
+
+## Layer 6: KE Interfaces
 
 ### API Endpoints
 
@@ -171,6 +278,18 @@ The `/ke` prefix provides internal endpoints:
 | `/ke/drift/authors` | GET | Per-author statistics |
 | `/ke/context/{rule_id}` | GET | Rule source context |
 | `/ke/related/{rule_id}` | GET | Related rules |
+| `/ke/rules/{rule_id}/review` | POST | Submit human review |
+| `/ke/rules/{rule_id}/reviews` | GET | Get review history |
+| `/ke/charts/supertree-status` | GET | Check Supertree availability |
+| `/ke/charts/rulebook-outline` | GET | Rulebook outline tree data |
+| `/ke/charts/rulebook-outline/html` | GET | Rulebook outline as HTML |
+| `/ke/charts/ontology` | GET | Ontology tree data |
+| `/ke/charts/ontology/html` | GET | Ontology as HTML |
+| `/ke/charts/corpus-links` | GET | Corpus-rule links tree data |
+| `/ke/charts/corpus-links/html` | GET | Corpus-rule links as HTML |
+| `/ke/charts/decision-tree/{rule_id}` | GET | Decision tree for a rule |
+| `/ke/charts/decision-trace/{rule_id}` | POST | Evaluate and get trace tree |
+| `/ke/charts/decision-trace/{rule_id}/html` | POST | Trace as HTML |
 
 ### Review Queue Priority
 

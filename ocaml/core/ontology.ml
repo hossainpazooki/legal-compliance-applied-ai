@@ -27,6 +27,8 @@ type actor_type =
   | CASP  (** Crypto-Asset Service Provider *)
   | Issuer
   | Regulator
+  | AssetOriginator  (** RWA: Entity that owns/originates the real-world asset *)
+  | Custodian        (** Custodian of assets (crypto or traditional) *)
   | OtherActor of string
 
 let actor_type_to_string = function
@@ -37,6 +39,8 @@ let actor_type_to_string = function
   | CASP -> "CASP"
   | Issuer -> "Issuer"
   | Regulator -> "Regulator"
+  | AssetOriginator -> "AssetOriginator"
+  | Custodian -> "Custodian"
   | OtherActor s -> s
 
 let actor_type_of_string = function
@@ -47,6 +51,8 @@ let actor_type_of_string = function
   | "CASP" -> CASP
   | "Issuer" -> Issuer
   | "Regulator" -> Regulator
+  | "AssetOriginator" -> AssetOriginator
+  | "Custodian" -> Custodian
   | s -> OtherActor s
 
 let actor_type_to_yaml t = `String (actor_type_to_string t)
@@ -88,12 +94,16 @@ let actor_of_yaml = function
     | _ -> Error "Missing required fields for actor")
   | _ -> Error "Expected object for actor"
 
-(** Classification of crypto-assets under MiCA *)
+(** Classification of crypto-assets and tokenized instruments *)
 type instrument_type =
-  | ART   (** Asset-Referenced Token *)
-  | EMT   (** E-Money Token *)
+  | ART   (** Asset-Referenced Token (MiCA) *)
+  | EMT   (** E-Money Token (MiCA) *)
   | UtilityToken
   | SecurityToken
+  | RWAToken  (** Real-World Asset Token *)
+  | RWADebt   (** Tokenized Debt Instrument *)
+  | RWAEquity (** Tokenized Equity *)
+  | RWAProperty (** Tokenized Real Estate / Property *)
   | OtherInstrument of string
 
 let instrument_type_to_string = function
@@ -101,6 +111,10 @@ let instrument_type_to_string = function
   | EMT -> "EMT"
   | UtilityToken -> "UtilityToken"
   | SecurityToken -> "SecurityToken"
+  | RWAToken -> "RWAToken"
+  | RWADebt -> "RWADebt"
+  | RWAEquity -> "RWAEquity"
+  | RWAProperty -> "RWAProperty"
   | OtherInstrument s -> s
 
 let instrument_type_of_string = function
@@ -108,6 +122,10 @@ let instrument_type_of_string = function
   | "EMT" -> EMT
   | "UtilityToken" -> UtilityToken
   | "SecurityToken" -> SecurityToken
+  | "RWAToken" -> RWAToken
+  | "RWADebt" -> RWADebt
+  | "RWAEquity" -> RWAEquity
+  | "RWAProperty" -> RWAProperty
   | s -> OtherInstrument s
 
 let instrument_type_to_yaml t = `String (instrument_type_to_string t)
@@ -159,6 +177,9 @@ type activity_type =
   | Transfer
   | Advice
   | PortfolioManagement
+  | Tokenization  (** RWA: Converting real-world asset to on-chain token *)
+  | Disclosure    (** RWA: Ongoing disclosure of asset information *)
+  | Valuation     (** RWA: Asset valuation and pricing *)
   | OtherActivity of string
 
 let activity_type_to_string = function
@@ -170,6 +191,9 @@ let activity_type_to_string = function
   | Transfer -> "Transfer"
   | Advice -> "Advice"
   | PortfolioManagement -> "PortfolioManagement"
+  | Tokenization -> "Tokenization"
+  | Disclosure -> "Disclosure"
+  | Valuation -> "Valuation"
   | OtherActivity s -> s
 
 let activity_type_of_string = function
@@ -181,6 +205,9 @@ let activity_type_of_string = function
   | "Transfer" -> Transfer
   | "Advice" -> Advice
   | "PortfolioManagement" -> PortfolioManagement
+  | "Tokenization" -> Tokenization
+  | "Disclosure" -> Disclosure
+  | "Valuation" -> Valuation
   | s -> OtherActivity s
 
 let activity_type_to_yaml t = `String (activity_type_to_string t)

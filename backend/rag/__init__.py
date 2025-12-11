@@ -4,6 +4,15 @@ from .retriever import Retriever, RetrievalResult
 from .bm25 import BM25Index
 from .chunker import chunk_text, chunk_by_section, Chunk
 from .rule_context import RuleContextRetriever, RuleContext, ProvisionContext
+from .corpus_loader import (
+    LegalDocument,
+    LegalCorpusError,
+    load_legal_document,
+    load_all_legal_documents,
+    get_available_document_ids,
+    chunk_legal_document,
+    index_legal_corpus,
+)
 from .frontend_helpers import (
     RuleContextPayload,
     RelatedProvision,
@@ -25,6 +34,14 @@ __all__ = [
     "RuleContextRetriever",
     "RuleContext",
     "ProvisionContext",
+    # Legal corpus
+    "LegalDocument",
+    "LegalCorpusError",
+    "load_legal_document",
+    "load_all_legal_documents",
+    "get_available_document_ids",
+    "chunk_legal_document",
+    "index_legal_corpus",
     # Frontend helpers
     "RuleContextPayload",
     "RelatedProvision",

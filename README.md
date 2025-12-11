@@ -104,7 +104,9 @@ docs/
 tests/           # Test suite
 ```
 
-## Optional ML Features
+## Optional Features
+
+### ML Features (Vector Search)
 
 For enhanced retrieval with vector search:
 
@@ -113,6 +115,16 @@ pip install -r requirements-ml.txt
 ```
 
 The system gracefully degrades to BM25-only retrieval if ML dependencies are unavailable.
+
+### Visualization (Supertree Charts)
+
+For interactive tree visualizations in the KE workbench:
+
+```bash
+pip install -r requirements-visualization.txt
+```
+
+When Supertree is installed, the Charts page in the KE dashboard shows interactive tree views. Without it, the system displays expandable JSON trees as a fallback.
 
 ## KE Workbench (Internal)
 
@@ -127,6 +139,21 @@ The workbench provides RAG-backed tools for modelers:
 - **Source & Context**: View the primary legal text span backing each rule with before/after context
 - **Related provisions**: Browse similar rules with similarity thresholds to reduce noise
 - **Corpus search**: Search by article reference ("Art. 36(1)") or natural language, with results mapped to rules
+- **Charts page**: Interactive tree visualizations for rulebook outline, ontology browser, corpus links, and decision traces
+- **Review Queue**: Prioritized list of rules needing human review
+
+### Legal Corpus
+
+The workbench includes a small embedded legal corpus for internal retrieval and context:
+
+- **MiCA** (EU Markets in Crypto-Assets Regulation) - `data/legal/mica_2023/`
+- **EU DLT Pilot Regime** - `data/legal/dlt_pilot_2022/`
+- **GENIUS Act** (US stablecoin framework) - `data/legal/genius_act_2025/`
+
+These are normalized excerpts, not full official texts. The `document_id` in rule YAML files maps to these corpus directories, enabling:
+- Automatic source text retrieval for rules
+- Document metadata display (title, citation, source URL)
+- Coverage gap detection (legal text with no corresponding rule)
 
 See [Engine Design](docs/engine_design.md) for architecture details.
 
