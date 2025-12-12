@@ -20,58 +20,152 @@ if TYPE_CHECKING:
 def build_rulebook_outline(rules: list[Rule]) -> dict:
     """Build a tree structure representing the rulebook outline.
 
-    Groups rules by source document and tags for hierarchical display.
+    Shows legal corpus documents with their articles, organized hierarchically.
+    Each article shows the rules that implement it.
 
     Args:
         rules: List of Rule objects from the rule loader.
 
     Returns:
-        Nested dict with structure:
-        {
-            "title": "Rulebook",
-            "children": [
-                {
-                    "title": "Document: mica_2023",
-                    "children": [
-                        {"title": "rule_id", "description": "...", "tags": [...]}
-                    ]
-                }
-            ]
-        }
+        Nested dict with legal corpus structure and rule mappings.
     """
-    if not rules:
-        return {"title": "Rulebook", "children": []}
+    import re
 
-    # Group rules by source document
-    by_document: dict[str, list[Rule]] = defaultdict(list)
+    # Try to load legal corpus for rich document info
+    legal_docs = []
+    try:
+        from backend.rag.corpus_loader import load_all_legal_documents
+        legal_docs = list(load_all_legal_documents())
+    except Exception:
+        pass
+
+    # Build rule coverage map: document_id -> article -> rules
+    rule_coverage: dict[str, dict[str, list[Rule]]] = defaultdict(lambda: defaultdict(list))
+    unlinked_rules: list[Rule] = []
+
     for rule in rules:
-        doc_id = rule.source.document_id if rule.source else "unlinked"
-        by_document[doc_id].append(rule)
+        if rule.source and rule.source.document_id:
+            doc_id = rule.source.document_id
+            article = rule.source.article or "General"
+            # Normalize article number
+            match = re.search(r"(\d+)", str(article))
+            if match:
+                article = match.group(1)
+            rule_coverage[doc_id][article].append(rule)
+        else:
+            unlinked_rules.append(rule)
 
-    # Build tree structure
     doc_children = []
-    for doc_id, doc_rules in sorted(by_document.items()):
-        rule_nodes = []
-        for rule in doc_rules:
-            node = {
-                "title": rule.rule_id,
-                "description": rule.description or "",
-                "tags": rule.tags,
-                "version": rule.version,
+
+    # Process legal corpus documents first (with full metadata)
+    for doc in legal_docs:
+        doc_articles = _extract_articles_from_text(doc.text)
+        doc_rules_map = rule_coverage.get(doc.document_id, {})
+
+        article_children = []
+        total_doc_rules = 0
+
+        for article_num in sorted(doc_articles, key=lambda x: int(x) if x.isdigit() else 0):
+            article_rules = doc_rules_map.get(article_num, [])
+            total_doc_rules += len(article_rules)
+
+            rule_nodes = [
+                {
+                    "title": r.rule_id,
+                    "description": r.description or "",
+                    "tags": r.tags,
+                    "version": r.version,
+                }
+                for r in article_rules
+            ]
+
+            article_node = {
+                "title": f"Article {article_num}",
+                "count": len(article_rules),
+                "status": "covered" if article_rules else "gap",
             }
-            if rule.source and rule.source.article:
-                node["article"] = rule.source.article
-            rule_nodes.append(node)
+            if rule_nodes:
+                article_node["children"] = rule_nodes
+
+            article_children.append(article_node)
+
+        # Also add rules for articles not in the extracted list
+        for article_num, article_rules in doc_rules_map.items():
+            if article_num not in doc_articles and article_num != "General":
+                total_doc_rules += len(article_rules)
+                rule_nodes = [
+                    {
+                        "title": r.rule_id,
+                        "description": r.description or "",
+                        "tags": r.tags,
+                    }
+                    for r in article_rules
+                ]
+                article_children.append({
+                    "title": f"Article {article_num}",
+                    "count": len(article_rules),
+                    "status": "covered",
+                    "children": rule_nodes,
+                })
 
         doc_children.append({
-            "title": f"Document: {doc_id}",
-            "count": len(doc_rules),
-            "children": rule_nodes,
+            "title": doc.title or doc.document_id,
+            "document_id": doc.document_id,
+            "citation": doc.citation,
+            "jurisdiction": doc.jurisdiction,
+            "articles": len(doc_articles),
+            "rules": total_doc_rules,
+            "children": article_children,
+        })
+
+    # Add any documents with rules but not in legal corpus
+    for doc_id, articles_map in rule_coverage.items():
+        if not any(d.document_id == doc_id for d in legal_docs):
+            article_children = []
+            total_rules = 0
+            for article_num, article_rules in sorted(articles_map.items()):
+                total_rules += len(article_rules)
+                rule_nodes = [
+                    {
+                        "title": r.rule_id,
+                        "description": r.description or "",
+                        "tags": r.tags,
+                    }
+                    for r in article_rules
+                ]
+                article_children.append({
+                    "title": f"Article {article_num}" if article_num != "General" else "General",
+                    "count": len(article_rules),
+                    "children": rule_nodes,
+                })
+
+            doc_children.append({
+                "title": doc_id.replace("_", " ").title(),
+                "document_id": doc_id,
+                "rules": total_rules,
+                "children": article_children,
+            })
+
+    # Add unlinked rules if any
+    if unlinked_rules:
+        unlinked_nodes = [
+            {
+                "title": r.rule_id,
+                "description": r.description or "",
+                "tags": r.tags,
+            }
+            for r in unlinked_rules
+        ]
+        doc_children.append({
+            "title": "Unlinked Rules",
+            "count": len(unlinked_rules),
+            "children": unlinked_nodes,
         })
 
     return {
-        "title": "Rulebook",
+        "title": "Legal Corpus & Rulebook",
         "total_rules": len(rules),
+        "documents": len(doc_children),
         "children": doc_children,
     }
 
