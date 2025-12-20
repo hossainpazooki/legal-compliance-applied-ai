@@ -15,57 +15,27 @@ The semantic consistency layer provides automated QA to detect potential issues 
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Input["Input"]
-        RULE[YAML Rule]
-        SRC[Source Legal Text]
-    end
+graph TB
+    RULE["YAML Rule"] --> CTX["Context Retrieval"]
+    SRC["Source Legal Text"] --> CTX
+    CTX --> T0["Tier 0: Schema"]
+    CTX --> T1["Tier 1: Lexical"]
+    CTX --> T2["Tier 2: Semantic"]
+    CTX --> T3["Tier 3: NLI"]
+    SIM["Similar Provisions"] --> T4["Tier 4: Cross-rule"]
 
-    subgraph RAG["RAG Layer"]
-        CTX[Context Retrieval]
-        SIM[Similar Provisions]
-    end
-
-    subgraph Tiers["Verification Tiers"]
-        T0[Tier 0: Schema<br/>schema_valid, required_fields,<br/>date_consistency]
-        T1[Tier 1: Lexical<br/>deontic_alignment, keyword_overlap,<br/>negation_consistency]
-        T2[Tier 2: Semantic<br/>embedding similarity<br/>stub]
-        T3[Tier 3: NLI<br/>entailment checking<br/>stub]
-        T4[Tier 4: Cross-Rule<br/>contradiction detection<br/>stub]
-    end
-
-    subgraph Output["Output"]
-        EV[Evidence Records<br/>tier, category, label, score]
-        SUM[Summary<br/>status, confidence]
-        ACT[Actions<br/>verified | needs_review | inconsistent]
-    end
-
-    subgraph Analytics["Analytics"]
-        ERR[Error Patterns]
-        DFT[Drift Detection]
-        RQ[Review Queue]
-    end
-
-    RULE --> CTX
-    SRC --> CTX
-    CTX --> T0
-    CTX --> T1
-    CTX --> T2
-    CTX --> T3
-    SIM --> T4
-
-    T0 --> EV
+    T0 --> EV["Evidence Records"]
     T1 --> EV
     T2 --> EV
     T3 --> EV
     T4 --> EV
 
-    EV --> SUM
-    SUM --> ACT
+    EV --> SUM["Summary"]
+    SUM --> ACT["Actions"]
 
-    EV --> ERR
-    EV --> DFT
-    ACT --> RQ
+    EV --> ERR["Error Patterns"]
+    EV --> DFT["Drift Detection"]
+    ACT --> RQ["Review Queue"]
 ```
 
 ### Verification Flow
