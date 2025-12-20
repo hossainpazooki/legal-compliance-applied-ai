@@ -304,3 +304,33 @@ assert len(result.obligations) == 2
 - Single-pass evaluation (no loops or recursion)
 
 These limitations are intentional — they keep rules auditable and deterministic.
+
+
+
+
+Changes Made
+1. Enhanced "Corpus-Rule Links" Chart
+Now displays legal corpus metadata (title, citation, jurisdiction, source URL)
+Shows jurisdiction badges (e.g., [EU], [US])
+Links to source documents when available
+2. New "Legal Corpus Coverage" Chart
+Added as a new chart type in the dropdown
+Shows coverage analysis for each legal document:
+Coverage percentage with progress bar
+Covered vs total articles count
+Lists of covered articles with their associated rules
+Lists of gap articles (provisions with no rules)
+Summary metrics at the top:
+Total Legal Documents
+Total Covered Articles
+Total Coverage Gaps
+3. Updated Visualization Functions
+build_corpus_rule_links() - enhanced to include legal corpus metadata
+build_legal_corpus_coverage() - new function for coverage analysis
+render_legal_corpus_html() - new HTML renderer with coverage-specific styling (green checkmarks for covered, red warnings for gaps)
+Files Modified
+supertree_adapters.py - Added build_legal_corpus_coverage() and _extract_articles_from_text()
+supertree_utils.py - Added render_legal_corpus_html() with coverage styling
+visualization/init.py - Updated exports
+charts.py - Added Legal Corpus Coverage chart and enhanced Corpus-Rule Links
+You can test the new charts by running: streamlit run frontend/ke_dashboard.py and navigating to the Charts page.
