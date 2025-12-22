@@ -154,8 +154,25 @@ class TreeGraph:
                     result.append((edge, node))
         return result
 
-    def to_dot(self, show_consistency: bool = True) -> str:
-        """Generate Graphviz DOT format string."""
+    def to_dot(
+        self,
+        show_consistency: bool = True,
+        highlight_nodes: set[str] | None = None,
+        highlight_edges: set[tuple[str, str]] | None = None,
+    ) -> str:
+        """Generate Graphviz DOT format string.
+
+        Args:
+            show_consistency: Whether to color nodes by consistency status
+            highlight_nodes: Set of node IDs to highlight (e.g., trace path)
+            highlight_edges: Set of (source_id, target_id) tuples to highlight
+
+        Returns:
+            DOT format string for Graphviz rendering
+        """
+        highlight_nodes = highlight_nodes or set()
+        highlight_edges = highlight_edges or set()
+
         lines = [
             "digraph DecisionTree {",
             '    rankdir=TB;',
@@ -166,12 +183,21 @@ class TreeGraph:
 
         # Add nodes
         for node in self.nodes:
-            if show_consistency:
+            is_highlighted = node.id in highlight_nodes
+
+            if is_highlighted:
+                # Highlighted nodes: yellow background, bold black border
+                fill_color = "#fff3cd"  # Light yellow
+                border_color = "#000000"  # Black
+                penwidth = 4
+            elif show_consistency:
                 fill_color = node.consistency.color
                 border_color = node.consistency.border_color
+                penwidth = 2
             else:
                 fill_color = "#e9ecef"
                 border_color = "#495057"
+                penwidth = 2
 
             # Build label
             if node.node_type == "leaf":
@@ -188,13 +214,17 @@ class TreeGraph:
             if show_consistency and node.consistency.status != "unverified":
                 label = f"{node.consistency.emoji} {label}"
 
+            # Add trace marker for highlighted nodes
+            if is_highlighted:
+                label = f"→ {label}"
+
             lines.append(
                 f'    "{node.id}" ['
                 f'label="{label}", '
                 f'shape={shape}, '
                 f'fillcolor="{fill_color}", '
                 f'color="{border_color}", '
-                f'penwidth=2'
+                f'penwidth={penwidth}'
                 f'];'
             )
 
@@ -202,13 +232,26 @@ class TreeGraph:
 
         # Add edges
         for edge in self.edges:
-            color = edge.color
+            is_highlighted = (edge.source_id, edge.target_id) in highlight_edges
+
+            if is_highlighted:
+                # Highlighted edges: black, thicker
+                color = "#000000"
+                penwidth = 3
+                style = "bold"
+            else:
+                color = edge.color
+                penwidth = 1
+                style = "solid"
+
             label = "T" if edge.is_true_branch else "F"
             lines.append(
                 f'    "{edge.source_id}" -> "{edge.target_id}" ['
                 f'label="{label}", '
                 f'color="{color}", '
-                f'fontcolor="{color}"'
+                f'fontcolor="{color}", '
+                f'penwidth={penwidth}, '
+                f'style={style}'
                 f'];'
             )
 
@@ -567,11 +610,61 @@ def rule_to_graph(
     return adapter.convert(rule, node_map)
 
 
-def render_dot(graph: TreeGraph, show_consistency: bool = True) -> str:
+def render_dot(
+    graph: TreeGraph,
+    show_consistency: bool = True,
+    highlight_nodes: set[str] | None = None,
+    highlight_edges: set[tuple[str, str]] | None = None,
+) -> str:
     """Render a tree graph as Graphviz DOT format."""
-    return graph.to_dot(show_consistency=show_consistency)
+    return graph.to_dot(
+        show_consistency=show_consistency,
+        highlight_nodes=highlight_nodes,
+        highlight_edges=highlight_edges,
+    )
 
 
 def render_mermaid(graph: TreeGraph, show_consistency: bool = True) -> str:
     """Render a tree graph as Mermaid flowchart format."""
     return graph.to_mermaid(show_consistency=show_consistency)
+
+
+def extract_trace_path(trace: list) -> tuple[set[str], set[tuple[str, str]]]:
+    """Extract highlighted nodes and edges from a decision trace.
+
+    Args:
+        trace: List of TraceStep objects from DecisionResult
+
+    Returns:
+        Tuple of (highlight_nodes set, highlight_edges set)
+    """
+    highlight_nodes: set[str] = set()
+    highlight_edges: set[tuple[str, str]] = set()
+
+    prev_node_id = None
+
+    for step in trace:
+        # Extract node ID from trace step
+        # TraceStep has node_path like "check_exemption" or "applicability.all[0]"
+        node_id = getattr(step, "node_path", None) or getattr(step, "node", None)
+
+        if node_id:
+            # Clean up node_path to get actual node ID
+            # Handle paths like "decision_tree.check_exemption" -> "check_exemption"
+            if "." in node_id:
+                parts = node_id.split(".")
+                # Take the last part that looks like a node ID
+                for part in reversed(parts):
+                    if not part.startswith("all[") and not part.startswith("any["):
+                        node_id = part
+                        break
+
+            highlight_nodes.add(node_id)
+
+            # Add edge from previous node
+            if prev_node_id and prev_node_id != node_id:
+                highlight_edges.add((prev_node_id, node_id))
+
+            prev_node_id = node_id
+
+    return highlight_nodes, highlight_edges

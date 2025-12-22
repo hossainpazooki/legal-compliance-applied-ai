@@ -1,6 +1,9 @@
 """
 Review Queue - Prioritized list of rules needing human review.
 
+DEPRECATED: This page is superseded by the KE Cockpit main dashboard.
+The cockpit provides an integrated worklist with the same functionality.
+
 This page shows rules that need attention based on their consistency status,
 allowing KE team members to submit Tier 4 human reviews.
 """
@@ -26,6 +29,17 @@ st.set_page_config(
     page_title="Review Queue - KE Workbench",
     page_icon="📋",
     layout="wide",
+)
+
+# -----------------------------------------------------------------------------
+# Deprecation Banner
+# -----------------------------------------------------------------------------
+
+st.warning(
+    "⚠️ **This page is deprecated.** The Review Queue is now integrated into the "
+    "[KE Cockpit](/) main dashboard. Use the worklist panel on the left side of the cockpit "
+    "for the same functionality with better integration.",
+    icon="⚠️",
 )
 
 # -----------------------------------------------------------------------------

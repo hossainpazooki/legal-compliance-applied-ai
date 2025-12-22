@@ -1,6 +1,10 @@
 """
 Charts - Interactive Tree Visualizations.
 
+NOTE: Decision Tree and Decision Trace features are now available in the
+KE Cockpit main dashboard. This page remains useful for corpus-wide
+visualizations that don't fit the single-rule cockpit view.
+
 This page provides tree visualizations for:
 - Rulebook outline (rules grouped by document)
 - Ontology browser (actor/instrument/activity types)
@@ -45,6 +49,16 @@ st.set_page_config(
     page_title="Charts - KE Workbench",
     page_icon="📊",
     layout="wide",
+)
+
+# -----------------------------------------------------------------------------
+# Info Banner
+# -----------------------------------------------------------------------------
+
+st.info(
+    "ℹ️ **Note:** Decision Tree and Decision Trace features are now in the "
+    "[KE Cockpit](/) main dashboard. This page remains useful for corpus-wide "
+    "visualizations like Rulebook Outline, Ontology Browser, and Corpus Coverage.",
 )
 
 # -----------------------------------------------------------------------------

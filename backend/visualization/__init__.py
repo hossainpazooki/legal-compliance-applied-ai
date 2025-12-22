@@ -9,6 +9,7 @@ from .tree_adapter import (
     rule_to_graph,
     render_dot,
     render_mermaid,
+    extract_trace_path,
 )
 
 from .supertree_adapters import (
@@ -41,6 +42,7 @@ __all__ = [
     "rule_to_graph",
     "render_dot",
     "render_mermaid",
+    "extract_trace_path",
     # Supertree data adapters
     "build_rulebook_outline",
     "build_decision_trace_tree",
