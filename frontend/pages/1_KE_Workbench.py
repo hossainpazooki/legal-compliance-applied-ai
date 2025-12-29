@@ -8,7 +8,7 @@ A unified workbench for the Knowledge Engineering team to:
 - Review source context and submit human review decisions
 
 Run from repo root:
-    streamlit run frontend/ke_dashboard.py
+    streamlit run frontend/Home.py
 """
 
 import sys

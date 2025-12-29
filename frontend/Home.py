@@ -4,7 +4,7 @@ Home - Regulatory Knowledge Engineering Workbench.
 Landing page with overview, instructions, and quick navigation.
 
 Run from repo root:
-    streamlit run frontend/ke_dashboard.py
+    streamlit run frontend/Home.py
 """
 
 import sys
@@ -20,7 +20,7 @@ import streamlit as st
 # -----------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="KE Workbench",
+    page_title="Home",
     page_icon="🏠",
     layout="wide",
 )
