@@ -1,4 +1,7 @@
-"""YAML rule loader and validator."""
+"""YAML rule loader and validator.
+
+Extended with jurisdiction support for v4 multi-jurisdiction architecture.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +18,7 @@ from .schema import (
     ConsistencyEvidence,
     ConsistencyStatus,
 )
+from backend.ontology.jurisdiction import JurisdictionCode
 
 
 class SourceRef(BaseModel):
@@ -69,13 +73,21 @@ class DecisionLeaf(BaseModel):
 
 
 class Rule(BaseModel):
-    """A complete rule specification."""
+    """A complete rule specification.
+
+    Extended with jurisdiction support for v4 architecture.
+    """
 
     rule_id: str
     version: str = "1.0"
     description: str | None = None
     effective_from: date | None = None
     effective_to: date | None = None
+
+    # Jurisdiction scoping (v4 multi-jurisdiction support)
+    jurisdiction: JurisdictionCode = JurisdictionCode.EU
+    regime_id: str = "mica_2023"
+    cross_border_relevant: bool = False
 
     applies_if: ConditionGroupSpec | None = None
     decision_tree: DecisionNode | DecisionLeaf | None = None

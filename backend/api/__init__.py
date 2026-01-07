@@ -5,6 +5,7 @@ from .routes_decide import router as decide_router
 from .routes_rules import router as rules_router
 from .routes_ke import router as ke_router
 from .routes_production import router as production_router
+from .routes_navigate import router as navigate_router
 
 __all__ = [
     "qa_router",
@@ -12,4 +13,5 @@ __all__ = [
     "rules_router",
     "ke_router",
     "production_router",
+    "navigate_router",
 ]

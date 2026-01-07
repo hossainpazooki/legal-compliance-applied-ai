@@ -549,3 +549,135 @@ OCaml rule_dsl.ml  ───►  YAML rule files  ◄───  Python loader
 ```
 
 The OCaml types remain the source of truth. Python mirrors them via Pydantic models but defers to OCaml for formal verification (future).
+
+## Multi-Jurisdiction Navigation (v4 Architecture)
+
+The v4 architecture extends the system with cross-border compliance navigation capabilities.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    /navigate Endpoint                           │
+│              (Cross-border compliance navigation)                │
+├─────────────────────────────────────────────────────────────────┤
+│                Jurisdiction Module                              │
+│                                                                 │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐    │
+│   │  Resolver   │  │  Evaluator  │  │ Conflict Detector   │    │
+│   │  (resolve   │  │  (parallel  │  │ (classification,    │    │
+│   │   jurisd.)  │  │   eval)     │  │  obligation, etc.)  │    │
+│   └─────────────┘  └─────────────┘  └─────────────────────┘    │
+│                          │                                      │
+│   ┌─────────────────────────────────────────────────────────┐  │
+│   │              Pathway Synthesizer                         │  │
+│   │   (ordered steps, timeline, critical path, waivers)      │  │
+│   └─────────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────────┤
+│                    Premise Index                                │
+│      (O(1) lookup with jurisdiction and regime filtering)       │
+├─────────────────────────────────────────────────────────────────┤
+│                    Jurisdiction Registry                        │
+│      (SQLite tables: jurisdictions, regimes, equivalences)      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+#### Jurisdiction Resolver (`backend/jurisdiction/resolver.py`)
+
+Resolves which jurisdictions and regulatory regimes apply:
+
+```python
+from backend.jurisdiction.resolver import resolve_jurisdictions
+
+applicable = resolve_jurisdictions(
+    issuer="CH",           # Swiss issuer
+    targets=["EU", "UK"],  # Targeting EU and UK markets
+    instrument_type="stablecoin",
+)
+# Returns: CH (issuer_home), EU (target), UK (target)
+```
+
+#### Jurisdiction Evaluator (`backend/jurisdiction/evaluator.py`)
+
+Parallel evaluation across jurisdictions with O(1) premise index lookup:
+
+```python
+from backend.jurisdiction.evaluator import evaluate_jurisdiction
+
+result = await evaluate_jurisdiction(
+    jurisdiction="UK",
+    regime_id="fca_crypto_2024",
+    facts={"instrument_type": "crypto_asset", ...},
+)
+```
+
+#### Conflict Detector (`backend/jurisdiction/conflicts.py`)
+
+Detects cross-jurisdiction conflicts:
+
+- **Classification divergence**: Same instrument, different regulatory treatment
+- **Obligation conflicts**: Incompatible requirements
+- **Timeline conflicts**: Conflicting deadlines
+- **Decision conflicts**: Permitted in one jurisdiction, prohibited in another
+
+#### Pathway Synthesizer (`backend/jurisdiction/pathway.py`)
+
+Generates ordered compliance roadmap:
+
+```python
+from backend.jurisdiction.pathway import synthesize_pathway
+
+pathway = synthesize_pathway(
+    results=jurisdiction_results,
+    conflicts=conflicts,
+    equivalences=equivalences,
+)
+# Returns: ordered steps with dependencies, timelines, waivers
+```
+
+### API Endpoint
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/navigate` | POST | Cross-border compliance navigation |
+| `/navigate/jurisdictions` | GET | List supported jurisdictions |
+| `/navigate/regimes` | GET | List regulatory regimes |
+| `/navigate/equivalences` | GET | List equivalence determinations |
+
+### Database Schema (v4)
+
+New tables for multi-jurisdiction support:
+
+- `jurisdictions`: Jurisdiction registry (EU, UK, US, CH, SG)
+- `regulatory_regimes`: Regime metadata (mica_2023, fca_crypto_2024, etc.)
+- `equivalence_determinations`: Cross-border equivalence decisions
+- `rule_conflicts`: Known rule conflicts
+
+### Premise Index with Jurisdiction
+
+The premise index now includes jurisdiction keys for O(1) filtered lookup:
+
+```python
+# Premise keys include jurisdiction and regime
+premise_keys = [
+    "jurisdiction:EU",
+    "regime:mica_2023",
+    "instrument_type:stablecoin",
+]
+
+# Lookup by jurisdiction
+rules = premise_index.lookup_by_jurisdiction(facts, jurisdiction="UK")
+```
+
+### Streamlit Navigator
+
+The Navigator page (`frontend/pages/3_Navigator.py`) provides a UI for:
+
+1. Defining cross-border scenarios (issuer, targets, instrument type)
+2. Running multi-jurisdiction analysis
+3. Viewing jurisdiction-specific results
+4. Reviewing detected conflicts
+5. Visualizing compliance pathway
+6. Estimating timeline to compliance

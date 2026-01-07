@@ -3,6 +3,8 @@
 These models mirror the OCaml rule_dsl.ml types and the YAML rule specification
 in docs/rule_dsl.md. They include the consistency block defined in
 docs/semantic_consistency_regulatory_kg.md.
+
+Extended with jurisdiction support for v4 multi-jurisdiction architecture.
 """
 
 from __future__ import annotations
@@ -11,6 +13,8 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 from pydantic import BaseModel, Field
+
+from backend.ontology.jurisdiction import JurisdictionCode
 
 
 # =============================================================================
@@ -202,6 +206,7 @@ class Rule(BaseModel):
     """A complete rule specification.
 
     Maps to OCaml: Rule_dsl.rule
+    Extended with jurisdiction support for v4 architecture.
     """
     # Identity
     rule_id: str = Field(..., description="Unique rule identifier")
@@ -212,6 +217,20 @@ class Rule(BaseModel):
     effective_from: date | None = Field(None, description="When rule becomes active")
     effective_to: date | None = Field(None, description="When rule expires")
     tags: list[str] = Field(default_factory=list, description="Classification tags")
+
+    # Jurisdiction scoping (v4 multi-jurisdiction support)
+    jurisdiction: JurisdictionCode = Field(
+        default=JurisdictionCode.EU,
+        description="Primary jurisdiction for this rule"
+    )
+    regime_id: str = Field(
+        default="mica_2023",
+        description="Regulatory regime identifier (e.g., mica_2023, fca_crypto_2024)"
+    )
+    cross_border_relevant: bool = Field(
+        default=False,
+        description="Whether this rule applies in cross-border scenarios"
+    )
 
     # Logic
     applies_if: ConditionGroup | None = Field(

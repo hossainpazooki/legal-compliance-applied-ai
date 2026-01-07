@@ -83,12 +83,17 @@ CREATE TABLE IF NOT EXISTS rules (
 
     -- Compiled IR (Phase 2)
     rule_ir TEXT,                       -- Compiled intermediate representation (JSON)
-    ir_version INTEGER DEFAULT 1,       -- For IR schema migrations
+    ir_version INTEGER DEFAULT 2,       -- For IR schema migrations (v2 = jurisdiction support)
     compiled_at TEXT,                   -- ISO timestamp when IR was generated
 
     -- Source reference
     source_document_id TEXT,            -- e.g., "mica_2023"
     source_article TEXT,                -- e.g., "36(1)"
+
+    -- Jurisdiction scoping (v4 multi-jurisdiction support)
+    jurisdiction_code VARCHAR(10) DEFAULT 'EU',  -- Primary jurisdiction
+    regime_id VARCHAR(100) DEFAULT 'mica_2023',  -- Regulatory regime
+    cross_border_relevant INTEGER DEFAULT 0,     -- Boolean: applies cross-border
 
     -- Timestamps
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -109,6 +114,10 @@ CREATE TABLE IF NOT EXISTS rule_premise_index (
     rule_version INTEGER NOT NULL DEFAULT 1,
     premise_position INTEGER,           -- Position in rule's condition list
     selectivity REAL DEFAULT 0.5,       -- Estimated fraction of facts matching
+
+    -- Jurisdiction support (v4)
+    jurisdiction_code VARCHAR(10) DEFAULT 'EU',  -- For jurisdiction-filtered lookup
+    regime_id VARCHAR(100),                      -- Regulatory regime
 
     PRIMARY KEY (premise_key, rule_id, rule_version),
     FOREIGN KEY (rule_id) REFERENCES rules(rule_id) ON DELETE CASCADE
@@ -180,15 +189,80 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 
 -- =============================================================================
+-- JURISDICTION REGISTRY (v4 multi-jurisdiction support)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS jurisdictions (
+    code VARCHAR(10) PRIMARY KEY,        -- EU, US, UK, SG, CH
+    name VARCHAR(255) NOT NULL,
+    authority VARCHAR(255),              -- ESMA, SEC, FCA, MAS, FINMA
+    parent_code VARCHAR(10),             -- For sub-jurisdictions (EU -> DE, FR)
+    metadata JSON,
+    FOREIGN KEY (parent_code) REFERENCES jurisdictions(code)
+);
+
+CREATE TABLE IF NOT EXISTS regulatory_regimes (
+    id VARCHAR(100) PRIMARY KEY,         -- mica_2023, fca_crypto_2024
+    jurisdiction_code VARCHAR(10) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    effective_date DATE,
+    sunset_date DATE,                    -- NULL if still in force
+    source_url TEXT,
+    metadata JSON,
+    FOREIGN KEY (jurisdiction_code) REFERENCES jurisdictions(code)
+);
+
+-- =============================================================================
+-- EQUIVALENCE DETERMINATIONS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS equivalence_determinations (
+    id TEXT PRIMARY KEY,
+    from_jurisdiction VARCHAR(10) NOT NULL,
+    to_jurisdiction VARCHAR(10) NOT NULL,
+    scope VARCHAR(100) NOT NULL,         -- prospectus, authorization, custody
+    status VARCHAR(50) NOT NULL,         -- equivalent, partial, not_equivalent, pending
+    effective_date DATE,
+    expiry_date DATE,
+    source_reference TEXT,
+    notes TEXT,
+    metadata JSON,
+    FOREIGN KEY (from_jurisdiction) REFERENCES jurisdictions(code),
+    FOREIGN KEY (to_jurisdiction) REFERENCES jurisdictions(code)
+);
+
+-- =============================================================================
+-- CROSS-JURISDICTION CONFLICTS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS rule_conflicts (
+    id TEXT PRIMARY KEY,
+    rule_id_a VARCHAR(255) NOT NULL,
+    rule_id_b VARCHAR(255) NOT NULL,
+    conflict_type VARCHAR(100) NOT NULL, -- classification, obligation, timeline
+    severity VARCHAR(50) NOT NULL,       -- blocking, warning, info
+    description TEXT,
+    resolution_strategy VARCHAR(100),    -- cumulative, stricter, home_jurisdiction
+    resolved_at TIMESTAMP,
+    resolved_by VARCHAR(255),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
 -- INDEXES
 -- =============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_rules_active ON rules(rule_id) WHERE is_active = 1;
 CREATE INDEX IF NOT EXISTS idx_rules_document ON rules(source_document_id);
 CREATE INDEX IF NOT EXISTS idx_rules_compiled ON rules(rule_id) WHERE rule_ir IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_rules_jurisdiction ON rules(jurisdiction_code);
+CREATE INDEX IF NOT EXISTS idx_rules_regime ON rules(regime_id);
 
 CREATE INDEX IF NOT EXISTS idx_premise_lookup ON rule_premise_index(premise_key);
 CREATE INDEX IF NOT EXISTS idx_premise_rule ON rule_premise_index(rule_id, rule_version);
+CREATE INDEX IF NOT EXISTS idx_premise_jurisdiction ON rule_premise_index(premise_key, jurisdiction_code);
+CREATE INDEX IF NOT EXISTS idx_premise_regime ON rule_premise_index(premise_key, regime_id);
 
 CREATE INDEX IF NOT EXISTS idx_verification_rule ON verification_results(rule_id);
 CREATE INDEX IF NOT EXISTS idx_verification_status ON verification_results(status, verified_at);
@@ -198,6 +272,14 @@ CREATE INDEX IF NOT EXISTS idx_evidence_tier ON verification_evidence(tier, labe
 
 CREATE INDEX IF NOT EXISTS idx_reviews_rule ON reviews(rule_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_reviewer ON reviews(reviewer_id);
+
+CREATE INDEX IF NOT EXISTS idx_jurisdictions_parent ON jurisdictions(parent_code);
+CREATE INDEX IF NOT EXISTS idx_regimes_jurisdiction ON regulatory_regimes(jurisdiction_code);
+CREATE INDEX IF NOT EXISTS idx_equivalence_from ON equivalence_determinations(from_jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_equivalence_to ON equivalence_determinations(to_jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_equivalence_scope ON equivalence_determinations(scope, status);
+CREATE INDEX IF NOT EXISTS idx_conflicts_rules ON rule_conflicts(rule_id_a, rule_id_b);
+CREATE INDEX IF NOT EXISTS idx_conflicts_type ON rule_conflicts(conflict_type, severity);
 """
 
 
@@ -234,3 +316,69 @@ def get_table_stats() -> dict[str, int]:
             stats[table] = cursor.fetchone()["count"]
 
         return stats
+
+
+def seed_jurisdictions() -> None:
+    """Seed jurisdiction registry with supported jurisdictions and regimes."""
+    with get_db() as conn:
+        # Seed jurisdictions
+        jurisdictions = [
+            ("EU", "European Union", "ESMA"),
+            ("UK", "United Kingdom", "FCA"),
+            ("US", "United States", "SEC"),
+            ("SG", "Singapore", "MAS"),
+            ("CH", "Switzerland", "FINMA"),
+        ]
+        for code, name, authority in jurisdictions:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO jurisdictions (code, name, authority)
+                VALUES (?, ?, ?)
+                """,
+                (code, name, authority),
+            )
+
+        # Seed regulatory regimes
+        regimes = [
+            ("mica_2023", "EU", "Markets in Crypto-Assets Regulation", "2024-12-30"),
+            ("mifid2_2014", "EU", "MiFID II / MiFIR", "2018-01-03"),
+            ("dlt_pilot_2022", "EU", "DLT Pilot Regime", "2023-03-23"),
+            ("fca_crypto_2024", "UK", "FCA Cryptoasset Regime", "2024-01-08"),
+            ("finsa_dlt_2021", "CH", "FinSA / DLT Act", "2021-08-01"),
+            ("psa_2019", "SG", "Payment Services Act", "2020-01-28"),
+            ("securities_act_1933", "US", "Securities Act of 1933", "1933-05-27"),
+            ("genius_act_2025", "US", "GENIUS Act", "2025-01-01"),
+        ]
+        for regime_id, jurisdiction_code, name, effective_date in regimes:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO regulatory_regimes (id, jurisdiction_code, name, effective_date)
+                VALUES (?, ?, ?, ?)
+                """,
+                (regime_id, jurisdiction_code, name, effective_date),
+            )
+
+        # Seed known equivalence determinations
+        equivalences = [
+            ("ch_eu_prospectus", "CH", "EU", "prospectus", "partial",
+             "Swiss prospectus partially recognized under MiFID II"),
+            ("uk_eu_post_brexit", "UK", "EU", "authorization", "not_equivalent",
+             "Post-Brexit, UK authorization not recognized in EU"),
+        ]
+        for eq_id, from_j, to_j, scope, status, notes in equivalences:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO equivalence_determinations
+                (id, from_jurisdiction, to_jurisdiction, scope, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (eq_id, from_j, to_j, scope, status, notes),
+            )
+
+        conn.commit()
+
+
+def init_db_with_seed() -> None:
+    """Initialize database and seed with jurisdiction data."""
+    init_db()
+    seed_jurisdictions()

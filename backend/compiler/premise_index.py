@@ -3,6 +3,8 @@ Premise index builder for O(1) rule lookup.
 
 The premise index is an inverted index mapping fact patterns to rule IDs,
 enabling constant-time lookup of potentially applicable rules.
+
+Extended with jurisdiction support for v4 multi-jurisdiction architecture.
 """
 
 from __future__ import annotations
@@ -12,13 +14,21 @@ from typing import Any
 
 from backend.compiler.ir import RuleIR
 from backend.rules.loader import Rule, ConditionGroupSpec, ConditionSpec
+from backend.ontology.jurisdiction import JurisdictionCode
 
 
 class PremiseIndexBuilder:
-    """Builds and manages the premise index for rule lookup."""
+    """Builds and manages the premise index for rule lookup.
+
+    Extended with jurisdiction support for v4 architecture.
+    Supports both in-memory and database-backed operations.
+    """
 
     def __init__(self):
         self._index: dict[str, set[str]] = defaultdict(set)
+        # Rule-to-jurisdiction mapping for filtered lookups
+        self._rule_jurisdictions: dict[str, str] = {}
+        self._rule_regimes: dict[str, str] = {}
 
     def build(self, rules: list[Rule] | list[RuleIR]) -> dict[str, list[str]]:
         """Build premise index from a list of rules.
@@ -30,17 +40,34 @@ class PremiseIndexBuilder:
             Dict mapping premise_key to list of rule_ids
         """
         self._index.clear()
+        self._rule_jurisdictions.clear()
+        self._rule_regimes.clear()
 
         for rule in rules:
             if isinstance(rule, RuleIR):
-                # Already have premise keys
+                # Already have premise keys and jurisdiction
                 for key in rule.premise_keys:
                     self._index[key].add(rule.rule_id)
+                # Store jurisdiction mapping
+                if rule.jurisdiction_code:
+                    self._rule_jurisdictions[rule.rule_id] = (
+                        rule.jurisdiction_code.value
+                        if isinstance(rule.jurisdiction_code, JurisdictionCode)
+                        else rule.jurisdiction_code
+                    )
+                self._rule_regimes[rule.rule_id] = rule.regime_id
             else:
                 # Extract from Rule
                 keys = self._extract_premise_keys(rule.applies_if)
                 for key in keys:
                     self._index[key].add(rule.rule_id)
+                # Store jurisdiction mapping
+                jurisdiction = getattr(rule, 'jurisdiction', JurisdictionCode.EU)
+                if isinstance(jurisdiction, JurisdictionCode):
+                    self._rule_jurisdictions[rule.rule_id] = jurisdiction.value
+                else:
+                    self._rule_jurisdictions[rule.rule_id] = str(jurisdiction)
+                self._rule_regimes[rule.rule_id] = getattr(rule, 'regime_id', 'mica_2023')
 
         return {k: list(v) for k, v in self._index.items()}
 
@@ -53,13 +80,30 @@ class PremiseIndexBuilder:
         Returns:
             List of premise keys added
         """
+        rule_id = rule.rule_id
+
         if isinstance(rule, RuleIR):
             keys = rule.premise_keys
+            # Store jurisdiction mapping
+            if rule.jurisdiction_code:
+                self._rule_jurisdictions[rule_id] = (
+                    rule.jurisdiction_code.value
+                    if isinstance(rule.jurisdiction_code, JurisdictionCode)
+                    else rule.jurisdiction_code
+                )
+            self._rule_regimes[rule_id] = rule.regime_id
         else:
             keys = self._extract_premise_keys(rule.applies_if)
+            # Store jurisdiction mapping
+            jurisdiction = getattr(rule, 'jurisdiction', JurisdictionCode.EU)
+            if isinstance(jurisdiction, JurisdictionCode):
+                self._rule_jurisdictions[rule_id] = jurisdiction.value
+            else:
+                self._rule_jurisdictions[rule_id] = str(jurisdiction)
+            self._rule_regimes[rule_id] = getattr(rule, 'regime_id', 'mica_2023')
 
         for key in keys:
-            self._index[key].add(rule.rule_id if isinstance(rule, RuleIR) else rule.rule_id)
+            self._index[key].add(rule_id)
 
         return keys
 
@@ -73,6 +117,10 @@ class PremiseIndexBuilder:
             self._index[key].discard(rule_id)
             if not self._index[key]:
                 del self._index[key]
+
+        # Remove jurisdiction mapping
+        self._rule_jurisdictions.pop(rule_id, None)
+        self._rule_regimes.pop(rule_id, None)
 
     def lookup(self, facts: dict[str, Any]) -> set[str]:
         """Find all rules that might apply to given facts.
@@ -128,6 +176,138 @@ class PremiseIndexBuilder:
             result &= self._index[key]
 
         return result
+
+    def lookup_by_jurisdiction(
+        self,
+        facts: dict[str, Any],
+        jurisdiction: str | JurisdictionCode,
+    ) -> set[str]:
+        """Find rules matching facts filtered by jurisdiction.
+
+        O(1) lookup via premise index + jurisdiction filter.
+        This is the primary lookup method for v4 multi-jurisdiction queries.
+
+        Args:
+            facts: Dictionary of fact field -> value
+            jurisdiction: Jurisdiction code to filter by
+
+        Returns:
+            Set of rule_ids matching facts AND jurisdiction
+        """
+        # First get all matching rules
+        candidates = self.lookup(facts)
+
+        # Filter by jurisdiction
+        if isinstance(jurisdiction, JurisdictionCode):
+            jurisdiction = jurisdiction.value
+
+        return {
+            rule_id
+            for rule_id in candidates
+            if self._rule_jurisdictions.get(rule_id) == jurisdiction
+        }
+
+    def lookup_by_regime(
+        self,
+        facts: dict[str, Any],
+        regime_id: str,
+    ) -> set[str]:
+        """Find rules matching facts filtered by regulatory regime.
+
+        Args:
+            facts: Dictionary of fact field -> value
+            regime_id: Regulatory regime identifier (e.g., 'mica_2023')
+
+        Returns:
+            Set of rule_ids matching facts AND regime
+        """
+        candidates = self.lookup(facts)
+
+        return {
+            rule_id
+            for rule_id in candidates
+            if self._rule_regimes.get(rule_id) == regime_id
+        }
+
+    def lookup_by_jurisdiction_key(
+        self,
+        jurisdiction: str | JurisdictionCode,
+    ) -> set[str]:
+        """Find all rules for a specific jurisdiction using premise key.
+
+        Uses jurisdiction:XX premise key for O(1) lookup.
+
+        Args:
+            jurisdiction: Jurisdiction code
+
+        Returns:
+            Set of rule_ids for that jurisdiction
+        """
+        if isinstance(jurisdiction, JurisdictionCode):
+            jurisdiction = jurisdiction.value
+
+        key = f"jurisdiction:{jurisdiction}"
+        return self._index.get(key, set()).copy()
+
+    def lookup_intersection_by_jurisdiction(
+        self,
+        premise_keys: list[str],
+        jurisdiction: str | JurisdictionCode,
+    ) -> set[str]:
+        """Find rules matching ALL premise keys filtered by jurisdiction.
+
+        Uses SQL-style INTERSECT logic for O(1) lookup.
+
+        Args:
+            premise_keys: List of premise keys to match
+            jurisdiction: Jurisdiction code to filter by
+
+        Returns:
+            Set of rule_ids matching ALL keys AND jurisdiction
+        """
+        if not premise_keys:
+            return self.lookup_by_jurisdiction_key(jurisdiction)
+
+        if isinstance(jurisdiction, JurisdictionCode):
+            jurisdiction = jurisdiction.value
+
+        # Add jurisdiction key to lookup
+        keys_with_jurisdiction = premise_keys + [f"jurisdiction:{jurisdiction}"]
+
+        # Find rules matching first key
+        first_key = keys_with_jurisdiction[0]
+        if first_key not in self._index:
+            return set()
+
+        result = self._index[first_key].copy()
+
+        # Intersect with remaining keys
+        for key in keys_with_jurisdiction[1:]:
+            if key in self._index:
+                result &= self._index[key]
+            else:
+                return set()
+
+        return result
+
+    def get_jurisdictions(self) -> set[str]:
+        """Get all unique jurisdictions in the index.
+
+        Returns:
+            Set of jurisdiction codes
+        """
+        return set(self._rule_jurisdictions.values())
+
+    def get_rules_by_jurisdiction(self) -> dict[str, list[str]]:
+        """Get rules grouped by jurisdiction.
+
+        Returns:
+            Dict mapping jurisdiction code to list of rule_ids
+        """
+        result: dict[str, list[str]] = defaultdict(list)
+        for rule_id, jurisdiction in self._rule_jurisdictions.items():
+            result[jurisdiction].append(rule_id)
+        return dict(result)
 
     def get_all_keys(self) -> list[str]:
         """Get all premise keys in the index.

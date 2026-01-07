@@ -169,10 +169,13 @@ class TestRuleCompiler:
 
         ir = compile_rule(rule)
 
-        assert len(ir.premise_keys) == 3
+        # 3 instrument types + jurisdiction:EU + regime:mica_2023 = 5 keys
+        assert len(ir.premise_keys) == 5
         assert "instrument_type:art" in ir.premise_keys
         assert "instrument_type:emt" in ir.premise_keys
         assert "instrument_type:stablecoin" in ir.premise_keys
+        assert "jurisdiction:EU" in ir.premise_keys
+        assert "regime:mica_2023" in ir.premise_keys
         assert ir.applicability_checks[0].value_set == {"art", "emt", "stablecoin"}
 
     def test_compile_rule_with_decision_tree(self):
@@ -535,7 +538,10 @@ class TestIntegration:
         assert ir.rule_id == "full_pipeline"
         assert ir.source_document_id == "test_doc"
         assert ir.source_article == "1"
-        assert len(ir.premise_keys) == 3  # type:art, type:emt, jurisdiction:EU
+        # type:art, type:emt, jurisdiction:EU, regime:mica_2023 = 4 keys
+        assert len(ir.premise_keys) == 4
+        assert "jurisdiction:EU" in ir.premise_keys
+        assert "regime:mica_2023" in ir.premise_keys
         assert len(ir.applicability_checks) == 2
         assert len(ir.decision_table) == 2
 

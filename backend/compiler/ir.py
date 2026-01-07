@@ -5,6 +5,8 @@ These Pydantic models represent the compile-time output that enables:
 - O(1) rule lookup via premise index
 - Linear condition evaluation (no tree traversal)
 - Jump-table style decision lookup
+
+Extended with jurisdiction support for v4 multi-jurisdiction architecture.
 """
 
 from __future__ import annotations
@@ -13,6 +15,12 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from backend.ontology.jurisdiction import (
+    Jurisdiction,
+    JurisdictionCode,
+    EquivalenceRef,
+)
 
 
 class ObligationSpec(BaseModel):
@@ -104,6 +112,7 @@ class RuleIR(BaseModel):
     """Complete Intermediate Representation of a compiled rule.
 
     This is the serialized format stored in the database and loaded at runtime.
+    Extended with jurisdiction support for v4 architecture.
     """
 
     rule_id: str
@@ -112,8 +121,30 @@ class RuleIR(BaseModel):
     version: int = 1
     """Rule content version."""
 
-    ir_version: int = 1
-    """IR format version for compatibility."""
+    ir_version: int = 2
+    """IR format version for compatibility. v2 adds jurisdiction support."""
+
+    # =========================================================================
+    # Jurisdiction Scoping (v4 multi-jurisdiction support)
+    # =========================================================================
+
+    jurisdiction: Jurisdiction | None = None
+    """Jurisdiction for this rule."""
+
+    jurisdiction_code: JurisdictionCode = JurisdictionCode.EU
+    """Jurisdiction code for quick filtering."""
+
+    regime_id: str = "mica_2023"
+    """Regulatory regime identifier."""
+
+    cross_border_relevant: bool = False
+    """Whether this rule applies in cross-border scenarios."""
+
+    equivalence_refs: list[EquivalenceRef] = Field(default_factory=list)
+    """Cross-border equivalence references."""
+
+    conflicts_with: list[str] = Field(default_factory=list)
+    """Rule IDs that may conflict with this rule."""
 
     # =========================================================================
     # O(1) Lookup Keys
@@ -123,6 +154,7 @@ class RuleIR(BaseModel):
     """
     Premise keys for inverted index lookup.
     Format: "field:value" (e.g., "instrument_type:art", "jurisdiction:EU")
+    Now includes jurisdiction keys for O(1) filtered lookup.
     """
 
     # =========================================================================
@@ -144,6 +176,26 @@ class RuleIR(BaseModel):
 
     decision_table: list[DecisionEntry] = Field(default_factory=list)
     """Decision table entries for result lookup."""
+
+    # =========================================================================
+    # Dependency Graph (for multi-rule chaining)
+    # =========================================================================
+
+    produces: list[str] = Field(default_factory=list)
+    """Facts this rule derives."""
+
+    depends_on: list[str] = Field(default_factory=list)
+    """Facts needed from other rules."""
+
+    priority: int = 0
+    """Topological order for rule chaining."""
+
+    # =========================================================================
+    # Pre-extracted Obligations
+    # =========================================================================
+
+    all_obligations: list[dict] = Field(default_factory=list)
+    """All obligations extracted from decision tree for fast access."""
 
     # =========================================================================
     # Metadata

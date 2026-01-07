@@ -3,6 +3,8 @@ Rule compiler for transforming AST to IR.
 
 Compiles rules from their YAML/Pydantic representation to an optimized
 Intermediate Representation for efficient runtime execution.
+
+Extended with jurisdiction support for v4 multi-jurisdiction architecture.
 """
 
 from __future__ import annotations
@@ -24,6 +26,12 @@ from backend.compiler.ir import (
     DecisionEntry,
     ObligationSpec,
     RuleIR,
+)
+from backend.ontology.jurisdiction import (
+    Jurisdiction,
+    JurisdictionCode,
+    JURISDICTION_NAMES,
+    JURISDICTION_AUTHORITIES,
 )
 
 
@@ -55,20 +63,44 @@ class RuleCompiler:
     def compile(self, rule: Rule, yaml_content: str | None = None) -> RuleIR:
         """Compile a rule to IR.
 
+        Implements v4 pretreat layer optimizations:
+        - buildPremiseIndex() with jurisdiction keys
+        - flattenConditions() for linear evaluation
+        - precomputeValueSets() for O(1) 'in' checks
+        - generateDecisionTable() for jump table lookup
+        - extractAllObligations() for fast access
+
         Args:
             rule: The Rule object to compile
             yaml_content: Optional YAML source for hash computation
 
         Returns:
-            Compiled RuleIR
+            Compiled RuleIR with jurisdiction support
         """
         # Reset indices for each compilation
         self._check_index = 0
         self._decision_index = 0
         self._entry_id = 0
 
-        # Extract premise keys for O(1) lookup
-        premise_keys = self._extract_premise_keys(rule.applies_if)
+        # Build jurisdiction object
+        jurisdiction_code = getattr(rule, 'jurisdiction', JurisdictionCode.EU)
+        if isinstance(jurisdiction_code, str):
+            jurisdiction_code = JurisdictionCode(jurisdiction_code)
+
+        jurisdiction = Jurisdiction(
+            code=jurisdiction_code,
+            name=JURISDICTION_NAMES.get(jurisdiction_code, jurisdiction_code.value),
+            authority=JURISDICTION_AUTHORITIES.get(jurisdiction_code, "Unknown"),
+        )
+
+        # Get regime_id
+        regime_id = getattr(rule, 'regime_id', 'mica_2023')
+        cross_border_relevant = getattr(rule, 'cross_border_relevant', False)
+
+        # Extract premise keys for O(1) lookup (includes jurisdiction keys)
+        premise_keys = self._extract_premise_keys_with_jurisdiction(
+            rule.applies_if, jurisdiction_code, regime_id
+        )
 
         # Flatten applicability conditions
         applicability_checks, applicability_mode = self._flatten_conditions(
@@ -80,6 +112,9 @@ class RuleCompiler:
             rule.decision_tree
         )
 
+        # Extract all obligations from decision tree
+        all_obligations = self._extract_all_obligations(rule.decision_tree)
+
         # Compute source hash
         source_hash = None
         if yaml_content:
@@ -88,11 +123,22 @@ class RuleCompiler:
         return RuleIR(
             rule_id=rule.rule_id,
             version=int(rule.version.split(".")[0]) if "." in rule.version else int(rule.version),
+            ir_version=2,
+            # Jurisdiction fields
+            jurisdiction=jurisdiction,
+            jurisdiction_code=jurisdiction_code,
+            regime_id=regime_id,
+            cross_border_relevant=cross_border_relevant,
+            # Premise keys with jurisdiction
             premise_keys=premise_keys,
+            # Flattened checks
             applicability_checks=applicability_checks,
             applicability_mode=applicability_mode,
             decision_checks=decision_checks,
             decision_table=decision_table,
+            # Pre-extracted obligations
+            all_obligations=all_obligations,
+            # Metadata
             compiled_at=datetime.now(timezone.utc).isoformat(),
             source_hash=source_hash,
             source_document_id=rule.source.document_id if rule.source else None,
@@ -140,6 +186,78 @@ class RuleCompiler:
 
         process_group(condition_group)
         return list(set(keys))
+
+    def _extract_premise_keys_with_jurisdiction(
+        self,
+        condition_group: ConditionGroupSpec | None,
+        jurisdiction_code: JurisdictionCode,
+        regime_id: str,
+    ) -> list[str]:
+        """Extract premise keys with jurisdiction keys for O(1) filtered lookup.
+
+        CRITICAL for v4 architecture: Always includes jurisdiction and regime keys
+        to enable O(1) filtered lookup across jurisdictions.
+
+        Args:
+            condition_group: The applies_if condition group
+            jurisdiction_code: The rule's jurisdiction
+            regime_id: The regulatory regime identifier
+
+        Returns:
+            List of premise keys including jurisdiction keys
+        """
+        keys: list[str] = []
+
+        # Always add jurisdiction and regime keys (v4 requirement)
+        keys.append(f"jurisdiction:{jurisdiction_code.value}")
+        keys.append(f"regime:{regime_id}")
+
+        # Extract from condition group
+        if condition_group:
+            keys.extend(self._extract_premise_keys(condition_group))
+
+        return list(set(keys))
+
+    def _extract_all_obligations(
+        self, tree: DecisionNode | DecisionLeaf | None
+    ) -> list[dict]:
+        """Extract all unique obligations from decision tree.
+
+        Pre-extracts obligations for fast access at runtime.
+
+        Args:
+            tree: The decision tree root
+
+        Returns:
+            List of obligation dicts
+        """
+        if tree is None:
+            return []
+
+        obligations: list[dict] = []
+        seen_ids: set[str] = set()
+
+        def traverse(node: DecisionNode | DecisionLeaf) -> None:
+            if isinstance(node, DecisionLeaf):
+                if node.obligations:
+                    for obl in node.obligations:
+                        if obl.id not in seen_ids:
+                            seen_ids.add(obl.id)
+                            obligations.append({
+                                "id": obl.id,
+                                "description": obl.description,
+                                "deadline": obl.deadline,
+                                "source_ref": getattr(obl, "source_ref", None),
+                            })
+            else:
+                # Decision node
+                if node.true_branch:
+                    traverse(node.true_branch)
+                if node.false_branch:
+                    traverse(node.false_branch)
+
+        traverse(tree)
+        return obligations
 
     def _flatten_conditions(
         self, condition_group: ConditionGroupSpec | None

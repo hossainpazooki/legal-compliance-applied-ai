@@ -80,16 +80,18 @@ with nav_col2:
 
 with nav_col3:
     st.markdown("""
-    ### Charts & Analytics
+    ### Cross-Border Navigator
 
-    Visual analysis tools:
-    - Rulebook outline with coverage
-    - Ontology type browser
-    - Corpus-to-rule links
-    - Legal corpus coverage gaps
+    Multi-jurisdiction compliance analysis:
+    - Resolve applicable jurisdictions
+    - Parallel rule evaluation
+    - Conflict detection
+    - Compliance pathway synthesis
+    - Timeline estimation
 
-    **Best for:** High-level regulatory coverage analysis
+    **Best for:** Cross-border token offerings
     """)
+    st.page_link("pages/3_Navigator.py", label="Open Navigator", icon="🧭")
 
 st.divider()
 
