@@ -46,6 +46,11 @@ flowchart TB
         CTX[Context Helpers]
     end
 
+    subgraph EmbeddingService["rule_embedding_service/"]
+        EMB[4-Type Embeddings]
+        VS[Vector Search]
+    end
+
     subgraph UI["Interfaces"]
         API[FastAPI]
         ST[Streamlit UI]
@@ -56,12 +61,15 @@ flowchart TB
     ONT --> DSL
     DSL --> DE
     DSL --> COMP
+    DSL --> EMB
     COMP --> IDX
     COMP --> CACHE
     DE --> JE
     JR --> JE
     JE --> CD
     CD --> PS
+    EMB --> VS
+    VS --> API
     DE --> API
     PS --> API
     CE --> API
@@ -102,8 +110,11 @@ backend/
 ├── rag_service/             # Retrieval-augmented context
 │   └── app/services/        # BM25 index, context helpers
 │
-└── rule_embedding_service/  # SQLModel rule CRUD API
-    └── app/services/        # Models, schemas, routes
+└── rule_embedding_service/  # Vector embeddings & similarity search
+    └── app/services/
+        ├── models.py        # RuleEmbedding, EmbeddingType
+        ├── generator.py     # 4-type embedding generation
+        └── service.py       # CRUD + vector search
 
 frontend/
 ├── Home.py                  # Landing page
@@ -125,11 +136,27 @@ docs/                        # Design documentation
 | GENIUS Act | US | Illustrative (6 rules) |
 | RWA Tokenization | EU | Illustrative (2 rules) |
 
+## Rule Embeddings
+
+The system generates 4 types of vector embeddings per rule for multi-faceted similarity search:
+
+| Type | Source | Use Case |
+|------|--------|----------|
+| **Semantic** | Name, description, decision explanation | Natural language search |
+| **Structural** | Conditions, operators, decision logic | Find structurally similar rules |
+| **Entity** | Field names, operators | Find rules using same data fields |
+| **Legal** | Citations, document IDs | Find rules from same legal sources |
+
+- Uses `sentence-transformers` (all-MiniLM-L6-v2) for dense embeddings
+- Falls back to hash-based vectors when ML unavailable
+- SQLite: JSON arrays; PostgreSQL: pgvector ready
+
 ## Documentation
 
 - [Knowledge Model](docs/knowledge_model.md) — Ontology design
 - [Rule DSL](docs/rule_dsl.md) — YAML rule specification
 - [Engine Design](docs/engine_design.md) — Architecture details
+- [Embedding Service](docs/embedding_service.md) — Vector search design
 
 ## Disclaimer
 

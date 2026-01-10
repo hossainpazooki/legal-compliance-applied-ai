@@ -1,19 +1,45 @@
-"""Business logic for embedding rules."""
+"""Business logic for embedding rules.
+
+Supports automatic generation of 4 embedding types per rule:
+- Semantic: from description
+- Structural: from conditions/logic
+- Entity: from field names
+- Legal: from citations
+"""
 
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import EmbeddingRule, EmbeddingCondition, EmbeddingDecision, EmbeddingLegalSource
+from .models import EmbeddingRule, EmbeddingCondition, EmbeddingDecision, EmbeddingLegalSource, RuleEmbedding
 from .schemas import RuleCreate, RuleUpdate
+from .generator import EmbeddingGenerator, create_embedding_records
 
 
 class EmbeddingRuleService:
-    """Service for embedding rule CRUD operations."""
+    """Service for embedding rule CRUD operations.
 
-    def __init__(self, session: Session):
+    Automatically generates embeddings when rules are created or updated.
+    """
+
+    def __init__(self, session: Session, generate_embeddings: bool = True):
+        """Initialize the service.
+
+        Args:
+            session: SQLModel database session
+            generate_embeddings: Whether to auto-generate embeddings (default True)
+        """
         self.session = session
+        self.generate_embeddings = generate_embeddings
+        self._generator: Optional[EmbeddingGenerator] = None
+
+    @property
+    def generator(self) -> EmbeddingGenerator:
+        """Lazy-load the embedding generator."""
+        if self._generator is None:
+            self._generator = EmbeddingGenerator()
+        return self._generator
 
     def create_rule(self, rule_data: RuleCreate) -> EmbeddingRule:
         rule = EmbeddingRule(
@@ -52,6 +78,46 @@ class EmbeddingRuleService:
             )
             self.session.add(source)
 
+        self.session.flush()
+        self.session.refresh(rule)
+
+        # Generate embeddings if requested
+        if self.generate_embeddings and rule_data.generate_embeddings:
+            self._generate_rule_embeddings(rule)
+
+        self.session.commit()
+        self.session.refresh(rule)
+        return rule
+
+    def _generate_rule_embeddings(self, rule: EmbeddingRule) -> None:
+        """Generate and store embeddings for a rule."""
+        # Delete existing embeddings
+        for emb in rule.embeddings:
+            self.session.delete(emb)
+        self.session.flush()
+
+        # Generate new embeddings
+        generated = self.generator.generate_all(rule)
+        records = create_embedding_records(rule.id, generated)
+
+        for record in records:
+            self.session.add(record)
+
+    def regenerate_embeddings(self, rule_id: str) -> Optional[EmbeddingRule]:
+        """Regenerate embeddings for a rule.
+
+        Args:
+            rule_id: The rule ID to regenerate embeddings for
+
+        Returns:
+            The updated rule, or None if not found
+        """
+        rule = self.get_rule_by_rule_id(rule_id)
+        if not rule:
+            return None
+
+        self._generate_rule_embeddings(rule)
+        rule.updated_at = datetime.now(timezone.utc)
         self.session.commit()
         self.session.refresh(rule)
         return rule
@@ -113,6 +179,13 @@ class EmbeddingRuleService:
                 )
                 self.session.add(source)
 
+        self.session.flush()
+        self.session.refresh(rule)
+
+        # Regenerate embeddings if requested
+        if self.generate_embeddings and rule_data.regenerate_embeddings:
+            self._generate_rule_embeddings(rule)
+
         rule.updated_at = datetime.now(timezone.utc)
         self.session.commit()
         self.session.refresh(rule)
@@ -128,3 +201,97 @@ class EmbeddingRuleService:
         self.session.commit()
         self.session.refresh(rule)
         return rule
+
+    def search_similar(
+        self,
+        query: str,
+        embedding_types: Optional[list[str]] = None,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> list[dict]:
+        """Search for rules similar to a query.
+
+        Args:
+            query: Text query to search for
+            embedding_types: Types of embeddings to search (default: all)
+            limit: Maximum number of results
+            min_score: Minimum similarity score (0-1)
+
+        Returns:
+            List of dicts with rule_id, rule_name, score, embedding_type, matched_text
+        """
+        import json
+        from .models import EmbeddingType
+
+        # Default to all embedding types
+        if embedding_types is None:
+            embedding_types = [e.value for e in EmbeddingType]
+
+        # Generate query embedding
+        query_vector = self.generator._encode(query)
+
+        # Get all embeddings of the requested types
+        statement = (
+            select(RuleEmbedding, EmbeddingRule)
+            .join(EmbeddingRule)
+            .where(RuleEmbedding.embedding_type.in_(embedding_types))
+            .where(EmbeddingRule.is_active == True)
+        )
+        results = self.session.exec(statement).all()
+
+        # Calculate similarities
+        scored_results = []
+        for embedding, rule in results:
+            stored_vector = json.loads(embedding.vector_json)
+            score = self._cosine_similarity(query_vector, stored_vector)
+
+            if score >= min_score:
+                scored_results.append({
+                    "rule_id": rule.rule_id,
+                    "rule_name": rule.name,
+                    "score": score,
+                    "embedding_type": embedding.embedding_type,
+                    "matched_text": embedding.source_text,
+                })
+
+        # Sort by score descending and limit
+        scored_results.sort(key=lambda x: x["score"], reverse=True)
+        return scored_results[:limit]
+
+    @staticmethod
+    def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
+        """Calculate cosine similarity between two vectors."""
+        import math
+
+        if len(vec1) != len(vec2):
+            return 0.0
+
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        magnitude1 = math.sqrt(sum(a * a for a in vec1))
+        magnitude2 = math.sqrt(sum(b * b for b in vec2))
+
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+
+        return dot_product / (magnitude1 * magnitude2)
+
+    def get_embedding_stats(self) -> dict:
+        """Get statistics about stored embeddings.
+
+        Returns:
+            Dict with counts per embedding type and total
+        """
+        from sqlalchemy import func
+        from .models import EmbeddingType
+
+        stats = {"total": 0, "by_type": {}}
+
+        for emb_type in EmbeddingType:
+            count = self.session.exec(
+                select(func.count(RuleEmbedding.id))
+                .where(RuleEmbedding.embedding_type == emb_type.value)
+            ).one()
+            stats["by_type"][emb_type.value] = count
+            stats["total"] += count
+
+        return stats
