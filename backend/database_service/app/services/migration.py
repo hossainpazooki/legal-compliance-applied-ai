@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from sqlalchemy import text
 
 from backend.database_service.app.services.database import init_db, get_db
 from backend.database_service.app.services.repositories.rule_repo import RuleRepository
@@ -86,11 +87,11 @@ def migrate_yaml_rules(
     # Optionally clear existing data
     if clear_existing:
         with get_db() as conn:
-            conn.execute("DELETE FROM verification_evidence")
-            conn.execute("DELETE FROM verification_results")
-            conn.execute("DELETE FROM reviews")
-            conn.execute("DELETE FROM rule_premise_index")
-            conn.execute("DELETE FROM rules")
+            conn.execute(text("DELETE FROM verification_evidence"))
+            conn.execute(text("DELETE FROM verification_results"))
+            conn.execute(text("DELETE FROM reviews"))
+            conn.execute(text("DELETE FROM rule_premise_index"))
+            conn.execute(text("DELETE FROM rules"))
             conn.commit()
 
     # Load rules from YAML

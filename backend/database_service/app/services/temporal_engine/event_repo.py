@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sqlalchemy import text
+
 from backend.database_service.app.services.database import get_db
 from backend.core.models import (
     RuleEventRecord,
@@ -72,23 +74,24 @@ class RuleEventRepository:
 
         with get_db() as conn:
             conn.execute(
-                """
+                text("""
                 INSERT INTO rule_events (
                     id, sequence_number, rule_id, version,
                     event_type, event_data, timestamp, actor, reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.id,
-                    record.sequence_number,
-                    record.rule_id,
-                    record.version,
-                    record.event_type,
-                    record.event_data,
-                    record.timestamp,
-                    record.actor,
-                    record.reason,
-                ),
+                ) VALUES (:id, :sequence_number, :rule_id, :version,
+                          :event_type, :event_data, :timestamp, :actor, :reason)
+                """),
+                {
+                    "id": record.id,
+                    "sequence_number": record.sequence_number,
+                    "rule_id": record.rule_id,
+                    "version": record.version,
+                    "event_type": record.event_type,
+                    "event_data": record.event_data,
+                    "timestamp": record.timestamp,
+                    "actor": record.actor,
+                    "reason": record.reason,
+                },
             )
             conn.commit()
 
@@ -110,26 +113,26 @@ class RuleEventRepository:
         """
         with get_db() as conn:
             if limit:
-                cursor = conn.execute(
-                    """
+                result = conn.execute(
+                    text("""
                     SELECT * FROM rule_events
-                    WHERE rule_id = ?
+                    WHERE rule_id = :rule_id
                     ORDER BY sequence_number DESC
-                    LIMIT ?
-                    """,
-                    (rule_id, limit),
+                    LIMIT :limit
+                    """),
+                    {"rule_id": rule_id, "limit": limit},
                 )
             else:
-                cursor = conn.execute(
-                    """
+                result = conn.execute(
+                    text("""
                     SELECT * FROM rule_events
-                    WHERE rule_id = ?
+                    WHERE rule_id = :rule_id
                     ORDER BY sequence_number DESC
-                    """,
-                    (rule_id,),
+                    """),
+                    {"rule_id": rule_id},
                 )
 
-            return [RuleEventRecord.from_row(dict(row)) for row in cursor.fetchall()]
+            return [RuleEventRecord.from_row(row._mapping) for row in result.fetchall()]
 
     def get_events_by_type(
         self,
@@ -149,16 +152,16 @@ class RuleEventRepository:
             event_type = event_type.value
 
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM rule_events
-                WHERE event_type = ?
+                WHERE event_type = :event_type
                 ORDER BY sequence_number DESC
-                LIMIT ?
-                """,
-                (event_type, limit),
+                LIMIT :limit
+                """),
+                {"event_type": event_type, "limit": limit},
             )
-            return [RuleEventRecord.from_row(dict(row)) for row in cursor.fetchall()]
+            return [RuleEventRecord.from_row(row._mapping) for row in result.fetchall()]
 
     def get_events_by_actor(
         self,
@@ -175,16 +178,16 @@ class RuleEventRepository:
             List of RuleEventRecord objects, newest first
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM rule_events
-                WHERE actor = ?
+                WHERE actor = :actor
                 ORDER BY sequence_number DESC
-                LIMIT ?
-                """,
-                (actor, limit),
+                LIMIT :limit
+                """),
+                {"actor": actor, "limit": limit},
             )
-            return [RuleEventRecord.from_row(dict(row)) for row in cursor.fetchall()]
+            return [RuleEventRecord.from_row(row._mapping) for row in result.fetchall()]
 
     def get_events_after_sequence(
         self,
@@ -203,16 +206,16 @@ class RuleEventRepository:
             List of RuleEventRecord objects, oldest first
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM rule_events
-                WHERE sequence_number > ?
+                WHERE sequence_number > :sequence_number
                 ORDER BY sequence_number ASC
-                LIMIT ?
-                """,
-                (sequence_number, limit),
+                LIMIT :limit
+                """),
+                {"sequence_number": sequence_number, "limit": limit},
             )
-            return [RuleEventRecord.from_row(dict(row)) for row in cursor.fetchall()]
+            return [RuleEventRecord.from_row(row._mapping) for row in result.fetchall()]
 
     def get_next_sequence_number(self) -> int:
         """Get the next sequence number for events.
@@ -221,11 +224,11 @@ class RuleEventRepository:
             The next sequence number (max + 1)
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT MAX(sequence_number) as max_seq FROM rule_events"
+            result = conn.execute(
+                text("SELECT MAX(sequence_number) as max_seq FROM rule_events")
             )
-            row = cursor.fetchone()
-            return (row["max_seq"] or 0) + 1
+            row = result.fetchone()
+            return (row[0] or 0) + 1
 
     def get_latest_event(self, rule_id: str) -> RuleEventRecord | None:
         """Get the most recent event for a rule.
@@ -237,19 +240,19 @@ class RuleEventRepository:
             RuleEventRecord if found, None otherwise
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM rule_events
-                WHERE rule_id = ?
+                WHERE rule_id = :rule_id
                 ORDER BY sequence_number DESC
                 LIMIT 1
-                """,
-                (rule_id,),
+                """),
+                {"rule_id": rule_id},
             )
-            row = cursor.fetchone()
+            row = result.fetchone()
 
             if row:
-                return RuleEventRecord.from_row(dict(row))
+                return RuleEventRecord.from_row(row._mapping)
             return None
 
     def count_events(self, rule_id: str | None = None) -> int:
@@ -263,14 +266,14 @@ class RuleEventRepository:
         """
         with get_db() as conn:
             if rule_id:
-                cursor = conn.execute(
-                    "SELECT COUNT(*) as count FROM rule_events WHERE rule_id = ?",
-                    (rule_id,),
+                result = conn.execute(
+                    text("SELECT COUNT(*) as count FROM rule_events WHERE rule_id = :rule_id"),
+                    {"rule_id": rule_id},
                 )
             else:
-                cursor = conn.execute("SELECT COUNT(*) as count FROM rule_events")
+                result = conn.execute(text("SELECT COUNT(*) as count FROM rule_events"))
 
-            return cursor.fetchone()["count"]
+            return result.fetchone()[0]
 
     def get_event_summary(self) -> dict[str, int]:
         """Get a summary of events by type.
@@ -279,12 +282,12 @@ class RuleEventRepository:
             Dictionary mapping event type to count
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT event_type, COUNT(*) as count
                 FROM rule_events
                 GROUP BY event_type
                 ORDER BY event_type
-                """
+                """)
             )
-            return {row["event_type"]: row["count"] for row in cursor.fetchall()}
+            return {row[0]: row[1] for row in result.fetchall()}

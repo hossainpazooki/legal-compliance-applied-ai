@@ -6,7 +6,10 @@ Provides CRUD operations for verification results, evidence, and human reviews.
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+from sqlalchemy import text
 
 from backend.database_service.app.services.database import get_db
 from backend.core.models import (
@@ -51,52 +54,61 @@ class VerificationRepository:
         """
         with get_db() as conn:
             # Check if result exists for this rule
-            cursor = conn.execute(
-                "SELECT id FROM verification_results WHERE rule_id = ?", (rule_id,)
+            result = conn.execute(
+                text("SELECT id FROM verification_results WHERE rule_id = :rule_id"),
+                {"rule_id": rule_id}
             )
-            existing = cursor.fetchone()
+            existing = result.fetchone()
 
-            result_id = existing["id"] if existing else generate_uuid()
+            result_id = existing[0] if existing else generate_uuid()
 
             if existing:
                 # Update existing
                 conn.execute(
-                    """
+                    text("""
                     UPDATE verification_results SET
-                        status = ?,
-                        confidence = ?,
-                        verified_at = ?,
-                        verified_by = ?,
-                        notes = ?
-                    WHERE id = ?
-                    """,
-                    (status, confidence, now_iso(), verified_by, notes, result_id),
+                        status = :status,
+                        confidence = :confidence,
+                        verified_at = :verified_at,
+                        verified_by = :verified_by,
+                        notes = :notes
+                    WHERE id = :id
+                    """),
+                    {
+                        "status": status,
+                        "confidence": confidence,
+                        "verified_at": now_iso(),
+                        "verified_by": verified_by,
+                        "notes": notes,
+                        "id": result_id,
+                    },
                 )
 
                 # Delete old evidence
                 conn.execute(
-                    "DELETE FROM verification_evidence WHERE verification_id = ?",
-                    (result_id,),
+                    text("DELETE FROM verification_evidence WHERE verification_id = :verification_id"),
+                    {"verification_id": result_id},
                 )
             else:
                 # Create new
                 conn.execute(
-                    """
+                    text("""
                     INSERT INTO verification_results (
                         id, rule_id, rule_version, status, confidence,
                         verified_at, verified_by, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        result_id,
-                        rule_id,
-                        1,  # Default version
-                        status,
-                        confidence,
-                        now_iso(),
-                        verified_by,
-                        notes,
-                    ),
+                    ) VALUES (:id, :rule_id, :rule_version, :status, :confidence,
+                              :verified_at, :verified_by, :notes)
+                    """),
+                    {
+                        "id": result_id,
+                        "rule_id": rule_id,
+                        "rule_version": 1,  # Default version
+                        "status": status,
+                        "confidence": confidence,
+                        "verified_at": now_iso(),
+                        "verified_by": verified_by,
+                        "notes": notes,
+                    },
                 )
 
             # Insert evidence
@@ -104,24 +116,25 @@ class VerificationRepository:
                 for ev in evidence:
                     evidence_id = generate_uuid()
                     conn.execute(
-                        """
+                        text("""
                         INSERT INTO verification_evidence (
                             id, verification_id, tier, category, label,
                             score, details, source_span, rule_element, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            evidence_id,
-                            result_id,
-                            ev.get("tier", 0),
-                            ev.get("category", "unknown"),
-                            ev.get("label", "warning"),
-                            ev.get("score"),
-                            ev.get("details"),
-                            ev.get("source_span"),
-                            ev.get("rule_element"),
-                            now_iso(),
-                        ),
+                        ) VALUES (:id, :verification_id, :tier, :category, :label,
+                                  :score, :details, :source_span, :rule_element, :created_at)
+                        """),
+                        {
+                            "id": evidence_id,
+                            "verification_id": result_id,
+                            "tier": ev.get("tier", 0),
+                            "category": ev.get("category", "unknown"),
+                            "label": ev.get("label", "warning"),
+                            "score": ev.get("score"),
+                            "details": ev.get("details"),
+                            "source_span": ev.get("source_span"),
+                            "rule_element": ev.get("rule_element"),
+                            "created_at": now_iso(),
+                        },
                     )
 
             conn.commit()
@@ -148,31 +161,32 @@ class VerificationRepository:
         """
         with get_db() as conn:
             # Get result
-            cursor = conn.execute(
-                "SELECT * FROM verification_results WHERE rule_id = ?", (rule_id,)
+            result = conn.execute(
+                text("SELECT * FROM verification_results WHERE rule_id = :rule_id"),
+                {"rule_id": rule_id}
             )
-            row = cursor.fetchone()
+            row = result.fetchone()
 
             if not row:
                 return None, []
 
-            result = VerificationResultRecord.from_row(dict(row))
+            record = VerificationResultRecord.from_row(row._mapping)
 
             # Get evidence
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM verification_evidence
-                WHERE verification_id = ?
+                WHERE verification_id = :verification_id
                 ORDER BY tier, category
-                """,
-                (result.id,),
+                """),
+                {"verification_id": record.id},
             )
             evidence = [
-                VerificationEvidenceRecord.from_row(dict(ev))
-                for ev in cursor.fetchall()
+                VerificationEvidenceRecord.from_row(ev._mapping)
+                for ev in result.fetchall()
             ]
 
-            return result, evidence
+            return record, evidence
 
     def get_all_verification_results(
         self,
@@ -184,36 +198,35 @@ class VerificationRepository:
         """
         with get_db() as conn:
             # Get all results
-            cursor = conn.execute(
-                "SELECT * FROM verification_results ORDER BY rule_id"
+            result = conn.execute(
+                text("SELECT * FROM verification_results ORDER BY rule_id")
             )
-            results = {
-                row["rule_id"]: VerificationResultRecord.from_row(dict(row))
-                for row in cursor.fetchall()
-            }
+            results = {}
+            for row in result.fetchall():
+                results[row._mapping["rule_id"]] = VerificationResultRecord.from_row(row._mapping)
 
             # Get all evidence
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT ve.*, vr.rule_id
                 FROM verification_evidence ve
                 JOIN verification_results vr ON ve.verification_id = vr.id
                 ORDER BY vr.rule_id, ve.tier, ve.category
-                """
+                """)
             )
 
             evidence_by_rule: dict[str, list[VerificationEvidenceRecord]] = {}
-            for row in cursor.fetchall():
-                rule_id = row["rule_id"]
+            for row in result.fetchall():
+                rule_id = row._mapping["rule_id"]
                 if rule_id not in evidence_by_rule:
                     evidence_by_rule[rule_id] = []
                 evidence_by_rule[rule_id].append(
-                    VerificationEvidenceRecord.from_row(dict(row))
+                    VerificationEvidenceRecord.from_row(row._mapping)
                 )
 
             return {
-                rule_id: (result, evidence_by_rule.get(rule_id, []))
-                for rule_id, result in results.items()
+                rule_id: (rec, evidence_by_rule.get(rule_id, []))
+                for rule_id, rec in results.items()
             }
 
     def delete_verification_result(self, rule_id: str) -> bool:
@@ -226,11 +239,12 @@ class VerificationRepository:
             True if a result was deleted
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                "DELETE FROM verification_results WHERE rule_id = ?", (rule_id,)
+            result = conn.execute(
+                text("DELETE FROM verification_results WHERE rule_id = :rule_id"),
+                {"rule_id": rule_id}
             )
             conn.commit()
-            return cursor.rowcount > 0
+            return result.rowcount > 0
 
     # =========================================================================
     # Statistics
@@ -243,14 +257,14 @@ class VerificationRepository:
             Dict with counts per status
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT status, COUNT(*) as count
                 FROM verification_results
                 GROUP BY status
-                """
+                """)
             )
-            return {row["status"]: row["count"] for row in cursor.fetchall()}
+            return {row[0]: row[1] for row in result.fetchall()}
 
     def get_evidence_stats(self) -> dict[str, dict[str, int]]:
         """Get evidence statistics by tier and label.
@@ -259,20 +273,20 @@ class VerificationRepository:
             Dict mapping tier to {label: count}
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT tier, label, COUNT(*) as count
                 FROM verification_evidence
                 GROUP BY tier, label
-                """
+                """)
             )
 
             stats: dict[str, dict[str, int]] = {}
-            for row in cursor.fetchall():
-                tier_key = f"tier_{row['tier']}"
+            for row in result.fetchall():
+                tier_key = f"tier_{row[0]}"
                 if tier_key not in stats:
                     stats[tier_key] = {}
-                stats[tier_key][row["label"]] = row["count"]
+                stats[tier_key][row[1]] = row[2]
 
             return stats
 
@@ -300,8 +314,6 @@ class VerificationRepository:
         Returns:
             The saved ReviewRecord
         """
-        import json
-
         record = ReviewRecord(
             rule_id=rule_id,
             reviewer_id=reviewer_id,
@@ -312,20 +324,20 @@ class VerificationRepository:
 
         with get_db() as conn:
             conn.execute(
-                """
+                text("""
                 INSERT INTO reviews (
                     id, rule_id, reviewer_id, decision, notes, created_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.id,
-                    record.rule_id,
-                    record.reviewer_id,
-                    record.decision,
-                    record.notes,
-                    record.created_at,
-                    json.dumps(record.metadata) if record.metadata else None,
-                ),
+                ) VALUES (:id, :rule_id, :reviewer_id, :decision, :notes, :created_at, :metadata)
+                """),
+                {
+                    "id": record.id,
+                    "rule_id": record.rule_id,
+                    "reviewer_id": record.reviewer_id,
+                    "decision": record.decision,
+                    "notes": record.notes,
+                    "created_at": record.created_at,
+                    "metadata": json.dumps(record.metadata) if record.metadata else None,
+                },
             )
             conn.commit()
 
@@ -341,15 +353,15 @@ class VerificationRepository:
             List of ReviewRecord objects, ordered by creation time
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM reviews
-                WHERE rule_id = ?
+                WHERE rule_id = :rule_id
                 ORDER BY created_at DESC
-                """,
-                (rule_id,),
+                """),
+                {"rule_id": rule_id},
             )
-            return [ReviewRecord.from_row(dict(row)) for row in cursor.fetchall()]
+            return [ReviewRecord.from_row(row._mapping) for row in result.fetchall()]
 
     def get_latest_review(self, rule_id: str) -> ReviewRecord | None:
         """Get the most recent review for a rule.
@@ -361,19 +373,19 @@ class VerificationRepository:
             Most recent ReviewRecord or None
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM reviews
-                WHERE rule_id = ?
+                WHERE rule_id = :rule_id
                 ORDER BY created_at DESC
                 LIMIT 1
-                """,
-                (rule_id,),
+                """),
+                {"rule_id": rule_id},
             )
-            row = cursor.fetchone()
+            row = result.fetchone()
 
             if row:
-                return ReviewRecord.from_row(dict(row))
+                return ReviewRecord.from_row(row._mapping)
             return None
 
     def get_reviews_by_reviewer(self, reviewer_id: str) -> list[ReviewRecord]:
@@ -386,15 +398,15 @@ class VerificationRepository:
             List of ReviewRecord objects
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
+            result = conn.execute(
+                text("""
                 SELECT * FROM reviews
-                WHERE reviewer_id = ?
+                WHERE reviewer_id = :reviewer_id
                 ORDER BY created_at DESC
-                """,
-                (reviewer_id,),
+                """),
+                {"reviewer_id": reviewer_id},
             )
-            return [ReviewRecord.from_row(dict(row)) for row in cursor.fetchall()]
+            return [ReviewRecord.from_row(row._mapping) for row in result.fetchall()]
 
     def count_reviews(self) -> int:
         """Count total reviews.
@@ -403,8 +415,8 @@ class VerificationRepository:
             Number of reviews
         """
         with get_db() as conn:
-            cursor = conn.execute("SELECT COUNT(*) as count FROM reviews")
-            return cursor.fetchone()["count"]
+            result = conn.execute(text("SELECT COUNT(*) as count FROM reviews"))
+            return result.fetchone()[0]
 
     # =========================================================================
     # Bulk Operations
@@ -417,11 +429,11 @@ class VerificationRepository:
             Number of results deleted
         """
         with get_db() as conn:
-            cursor = conn.execute("SELECT COUNT(*) as count FROM verification_results")
-            count = cursor.fetchone()["count"]
+            result = conn.execute(text("SELECT COUNT(*) as count FROM verification_results"))
+            count = result.fetchone()[0]
 
-            conn.execute("DELETE FROM verification_evidence")
-            conn.execute("DELETE FROM verification_results")
+            conn.execute(text("DELETE FROM verification_evidence"))
+            conn.execute(text("DELETE FROM verification_results"))
             conn.commit()
 
             return count

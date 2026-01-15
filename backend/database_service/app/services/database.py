@@ -1,27 +1,55 @@
 """
 Database connection management and initialization.
 
-Uses SQLite for development with PostgreSQL-compatible schema design.
+Supports both SQLite (local dev) and PostgreSQL (production) via DATABASE_URL.
 """
 
 from __future__ import annotations
 
-import sqlite3
+import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Any
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine, Connection
 
 
-# Default database path
+# Global engine instance
+_engine: Engine | None = None
 _DB_PATH: Path | None = None
 
 
+def _is_postgres() -> bool:
+    """Check if using PostgreSQL database."""
+    database_url = os.getenv("DATABASE_URL", "")
+    return database_url.startswith("postgres")
+
+
+def get_database_url() -> str:
+    """Get database URL from environment or default to SQLite.
+
+    Handles Railway's postgres:// URL format by converting to postgresql://.
+    """
+    database_url = os.getenv("DATABASE_URL")
+
+    if database_url:
+        # Railway uses postgres:// but SQLAlchemy requires postgresql://
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        return database_url
+
+    # Default to SQLite for local development
+    db_path = get_db_path()
+    return f"sqlite:///{db_path}"
+
+
 def get_db_path() -> Path:
-    """Get the database file path."""
+    """Get the SQLite database file path (used when DATABASE_URL not set)."""
     global _DB_PATH
     if _DB_PATH is None:
         # Default to data/ directory in project root
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path(__file__).parent.parent.parent.parent.parent
         data_dir = project_root / "data"
         data_dir.mkdir(exist_ok=True)
         _DB_PATH = data_dir / "ke_workbench.db"
@@ -30,27 +58,47 @@ def get_db_path() -> Path:
 
 def set_db_path(path: Path | str) -> None:
     """Set a custom database path (useful for testing)."""
-    global _DB_PATH
+    global _DB_PATH, _engine
     _DB_PATH = Path(path)
+    _engine = None  # Reset engine when path changes
+
+
+def get_engine() -> Engine:
+    """Get SQLAlchemy engine for database operations."""
+    global _engine
+    if _engine is None:
+        database_url = get_database_url()
+
+        # SQLite-specific connection args
+        connect_args = {}
+        if database_url.startswith("sqlite"):
+            connect_args["check_same_thread"] = False
+
+        _engine = create_engine(database_url, echo=False, connect_args=connect_args)
+    return _engine
+
+
+def reset_engine() -> None:
+    """Reset the engine (useful for testing or reconfiguration)."""
+    global _engine
+    _engine = None
 
 
 @contextmanager
-def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """Get a database connection with row factory enabled.
+def get_db() -> Generator[Connection, None, None]:
+    """Get a database connection.
 
     Usage:
         with get_db() as conn:
-            cursor = conn.execute("SELECT * FROM rules")
-            rows = cursor.fetchall()
+            result = conn.execute(text("SELECT * FROM rules"))
+            rows = result.fetchall()
     """
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    # Enable foreign keys
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
+    engine = get_engine()
+    with engine.connect() as conn:
+        # Enable foreign keys for SQLite
+        if not _is_postgres():
+            conn.execute(text("PRAGMA foreign_keys = ON"))
         yield conn
-    finally:
-        conn.close()
 
 
 # SQLModel utilities available via explicit import:
@@ -62,9 +110,42 @@ def init_db() -> None:
 
     Creates all tables if they don't exist. Safe to call multiple times.
     """
-    with get_db() as conn:
-        conn.executescript(_SCHEMA)
-        conn.commit()
+    engine = get_engine()
+
+    # For SQLite, use executescript equivalent; for PostgreSQL, execute statements individually
+    if not _is_postgres():
+        # SQLite: Use raw connection's executescript for multi-statement execution
+        raw_conn = engine.raw_connection()
+        try:
+            raw_conn.executescript(_SCHEMA)
+            raw_conn.commit()
+        finally:
+            raw_conn.close()
+    else:
+        # PostgreSQL: Execute each statement individually
+        with engine.connect() as conn:
+            # Split by semicolons, but handle multi-line statements properly
+            statements = []
+            current_stmt = []
+            for line in _SCHEMA.split("\n"):
+                stripped = line.strip()
+                # Skip pure comment lines
+                if stripped.startswith("--"):
+                    continue
+                current_stmt.append(line)
+                if stripped.endswith(";"):
+                    statements.append("\n".join(current_stmt))
+                    current_stmt = []
+
+            for statement in statements:
+                statement = statement.strip()
+                if statement and not statement.startswith("--"):
+                    # Remove trailing semicolon for PostgreSQL
+                    if statement.endswith(";"):
+                        statement = statement[:-1]
+                    if statement.strip():
+                        conn.execute(text(statement))
+            conn.commit()
 
 
 # =============================================================================
@@ -101,8 +182,8 @@ CREATE TABLE IF NOT EXISTS rules (
     cross_border_relevant INTEGER DEFAULT 0,     -- Boolean: applies cross-border
 
     -- Timestamps
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
 
     -- Status
     is_active INTEGER NOT NULL DEFAULT 1
@@ -143,7 +224,7 @@ CREATE TABLE IF NOT EXISTS verification_results (
     confidence REAL,                    -- 0.0 to 1.0
 
     -- Audit info
-    verified_at TEXT NOT NULL DEFAULT (datetime('now')),
+    verified_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     verified_by TEXT,                   -- 'system' or 'human:username'
     notes TEXT,                         -- Optional reviewer notes
 
@@ -171,7 +252,7 @@ CREATE TABLE IF NOT EXISTS verification_evidence (
     rule_element TEXT,                  -- Path in rule (e.g., "applies_if.all[0]")
 
     -- Timestamp
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
 
     FOREIGN KEY (verification_id) REFERENCES verification_results(id) ON DELETE CASCADE
 );
@@ -187,7 +268,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     reviewer_id TEXT NOT NULL,
     decision TEXT NOT NULL,             -- consistent, inconsistent, unknown
     notes TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     metadata TEXT,                      -- JSON for additional context
 
     FOREIGN KEY (rule_id) REFERENCES rules(rule_id) ON DELETE CASCADE
@@ -371,15 +452,24 @@ CREATE INDEX IF NOT EXISTS idx_obligation_conflicts_b ON obligation_conflicts(ob
 def reset_db() -> None:
     """Drop all tables and recreate schema. USE WITH CAUTION."""
     with get_db() as conn:
-        # Get all table names
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        )
-        tables = [row["name"] for row in cursor.fetchall()]
+        # Get all table names (database-agnostic)
+        if _is_postgres():
+            result = conn.execute(text(
+                "SELECT table_name as name FROM information_schema.tables "
+                "WHERE table_schema = 'public'"
+            ))
+        else:
+            result = conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ))
+        tables = [row[0] for row in result.fetchall()]
 
-        # Drop all tables
+        # Drop all tables (CASCADE for PostgreSQL foreign keys)
         for table in tables:
-            conn.execute(f"DROP TABLE IF EXISTS {table}")
+            if _is_postgres():
+                conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+            else:
+                conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
         conn.commit()
 
@@ -391,14 +481,21 @@ def get_table_stats() -> dict[str, int]:
     """Get row counts for all tables (useful for diagnostics)."""
     with get_db() as conn:
         stats = {}
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        )
-        tables = [row["name"] for row in cursor.fetchall()]
+        # Get all table names (database-agnostic)
+        if _is_postgres():
+            result = conn.execute(text(
+                "SELECT table_name as name FROM information_schema.tables "
+                "WHERE table_schema = 'public'"
+            ))
+        else:
+            result = conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ))
+        tables = [row[0] for row in result.fetchall()]
 
         for table in tables:
-            cursor = conn.execute(f"SELECT COUNT(*) as count FROM {table}")
-            stats[table] = cursor.fetchone()["count"]
+            result = conn.execute(text(f"SELECT COUNT(*) as count FROM {table}"))
+            stats[table] = result.fetchone()[0]
 
         return stats
 
@@ -416,11 +513,12 @@ def seed_jurisdictions() -> None:
         ]
         for code, name, authority in jurisdictions:
             conn.execute(
-                """
-                INSERT OR IGNORE INTO jurisdictions (code, name, authority)
-                VALUES (?, ?, ?)
-                """,
-                (code, name, authority),
+                text("""
+                INSERT INTO jurisdictions (code, name, authority)
+                VALUES (:code, :name, :authority)
+                ON CONFLICT (code) DO NOTHING
+                """),
+                {"code": code, "name": name, "authority": authority},
             )
 
         # Seed regulatory regimes
@@ -436,11 +534,13 @@ def seed_jurisdictions() -> None:
         ]
         for regime_id, jurisdiction_code, name, effective_date in regimes:
             conn.execute(
-                """
-                INSERT OR IGNORE INTO regulatory_regimes (id, jurisdiction_code, name, effective_date)
-                VALUES (?, ?, ?, ?)
-                """,
-                (regime_id, jurisdiction_code, name, effective_date),
+                text("""
+                INSERT INTO regulatory_regimes (id, jurisdiction_code, name, effective_date)
+                VALUES (:id, :jurisdiction_code, :name, :effective_date)
+                ON CONFLICT (id) DO NOTHING
+                """),
+                {"id": regime_id, "jurisdiction_code": jurisdiction_code,
+                 "name": name, "effective_date": effective_date},
             )
 
         # Seed known equivalence determinations
@@ -452,12 +552,14 @@ def seed_jurisdictions() -> None:
         ]
         for eq_id, from_j, to_j, scope, status, notes in equivalences:
             conn.execute(
-                """
-                INSERT OR IGNORE INTO equivalence_determinations
+                text("""
+                INSERT INTO equivalence_determinations
                 (id, from_jurisdiction, to_jurisdiction, scope, status, notes)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (eq_id, from_j, to_j, scope, status, notes),
+                VALUES (:id, :from_j, :to_j, :scope, :status, :notes)
+                ON CONFLICT (id) DO NOTHING
+                """),
+                {"id": eq_id, "from_j": from_j, "to_j": to_j,
+                 "scope": scope, "status": status, "notes": notes},
             )
 
         conn.commit()

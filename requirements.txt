@@ -7,6 +7,9 @@ pyyaml>=6.0.1
 python-dotenv>=1.0.0
 sqlmodel>=0.0.14
 
+# Database
+psycopg2-binary>=2.9.9  # PostgreSQL driver (production)
+
 # BM25 retrieval (no ML)
 rank-bm25>=0.2.2
 
