@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import text
+
 from backend.database_service.app.services.database import get_db
 
 
@@ -39,33 +41,35 @@ class JurisdictionConfigRepository:
         """
         with get_db() as conn:
             # Try jurisdiction-specific first
-            cursor = conn.execute(
-                """
-                SELECT * FROM step_timelines
-                WHERE step_id = ? AND jurisdiction_code = ?
-                """,
-                (step_id, jurisdiction_code),
+            result = conn.execute(
+                text("""
+                SELECT step_id, jurisdiction_code, min_days, max_days, description
+                FROM step_timelines
+                WHERE step_id = :step_id AND jurisdiction_code = :jurisdiction_code
+                """),
+                {"step_id": step_id, "jurisdiction_code": jurisdiction_code},
             )
-            row = cursor.fetchone()
+            row = result.fetchone()
 
             # Fall back to default if not found
             if not row and jurisdiction_code != "*":
-                cursor = conn.execute(
-                    """
-                    SELECT * FROM step_timelines
-                    WHERE step_id = ? AND jurisdiction_code = '*'
-                    """,
-                    (step_id,),
+                result = conn.execute(
+                    text("""
+                    SELECT step_id, jurisdiction_code, min_days, max_days, description
+                    FROM step_timelines
+                    WHERE step_id = :step_id AND jurisdiction_code = '*'
+                    """),
+                    {"step_id": step_id},
                 )
-                row = cursor.fetchone()
+                row = result.fetchone()
 
             if row:
                 return {
-                    "step_id": row["step_id"],
-                    "jurisdiction_code": row["jurisdiction_code"],
-                    "min_days": row["min_days"],
-                    "max_days": row["max_days"],
-                    "description": row["description"],
+                    "step_id": row[0],
+                    "jurisdiction_code": row[1],
+                    "min_days": row[2],
+                    "max_days": row[3],
+                    "description": row[4],
                 }
             return None
 
@@ -82,24 +86,33 @@ class JurisdictionConfigRepository:
         """
         with get_db() as conn:
             if jurisdiction_code:
-                cursor = conn.execute(
-                    "SELECT * FROM step_timelines WHERE jurisdiction_code = ? ORDER BY step_id",
-                    (jurisdiction_code,),
+                result = conn.execute(
+                    text("""
+                    SELECT step_id, jurisdiction_code, min_days, max_days, description
+                    FROM step_timelines
+                    WHERE jurisdiction_code = :jurisdiction_code
+                    ORDER BY step_id
+                    """),
+                    {"jurisdiction_code": jurisdiction_code},
                 )
             else:
-                cursor = conn.execute(
-                    "SELECT * FROM step_timelines ORDER BY step_id, jurisdiction_code"
+                result = conn.execute(
+                    text("""
+                    SELECT step_id, jurisdiction_code, min_days, max_days, description
+                    FROM step_timelines
+                    ORDER BY step_id, jurisdiction_code
+                    """)
                 )
 
             return [
                 {
-                    "step_id": row["step_id"],
-                    "jurisdiction_code": row["jurisdiction_code"],
-                    "min_days": row["min_days"],
-                    "max_days": row["max_days"],
-                    "description": row["description"],
+                    "step_id": row[0],
+                    "jurisdiction_code": row[1],
+                    "min_days": row[2],
+                    "max_days": row[3],
+                    "description": row[4],
                 }
-                for row in cursor.fetchall()
+                for row in result.fetchall()
             ]
 
     def set_step_timeline(
@@ -121,12 +134,22 @@ class JurisdictionConfigRepository:
         """
         with get_db() as conn:
             conn.execute(
-                """
-                INSERT OR REPLACE INTO step_timelines
+                text("""
+                INSERT INTO step_timelines
                 (step_id, jurisdiction_code, min_days, max_days, description)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (step_id, jurisdiction_code, min_days, max_days, description),
+                VALUES (:step_id, :jurisdiction_code, :min_days, :max_days, :description)
+                ON CONFLICT (step_id, jurisdiction_code) DO UPDATE SET
+                    min_days = :min_days,
+                    max_days = :max_days,
+                    description = :description
+                """),
+                {
+                    "step_id": step_id,
+                    "jurisdiction_code": jurisdiction_code,
+                    "min_days": min_days,
+                    "max_days": max_days,
+                    "description": description,
+                },
             )
             conn.commit()
 
@@ -144,11 +167,15 @@ class JurisdictionConfigRepository:
             List of step IDs this step depends on
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT depends_on FROM step_dependencies WHERE step_id = ? ORDER BY depends_on",
-                (step_id,),
+            result = conn.execute(
+                text("""
+                SELECT depends_on FROM step_dependencies
+                WHERE step_id = :step_id
+                ORDER BY depends_on
+                """),
+                {"step_id": step_id},
             )
-            return [row["depends_on"] for row in cursor.fetchall()]
+            return [row[0] for row in result.fetchall()]
 
     def get_all_dependencies(self) -> dict[str, list[str]]:
         """Get all step dependencies.
@@ -157,16 +184,19 @@ class JurisdictionConfigRepository:
             Dictionary mapping step_id to list of dependencies
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT step_id, depends_on FROM step_dependencies ORDER BY step_id, depends_on"
+            result = conn.execute(
+                text("""
+                SELECT step_id, depends_on FROM step_dependencies
+                ORDER BY step_id, depends_on
+                """)
             )
 
             deps: dict[str, list[str]] = {}
-            for row in cursor.fetchall():
-                step_id = row["step_id"]
+            for row in result.fetchall():
+                step_id = row[0]
                 if step_id not in deps:
                     deps[step_id] = []
-                deps[step_id].append(row["depends_on"])
+                deps[step_id].append(row[1])
 
             return deps
 
@@ -179,11 +209,12 @@ class JurisdictionConfigRepository:
         """
         with get_db() as conn:
             conn.execute(
-                """
-                INSERT OR IGNORE INTO step_dependencies (step_id, depends_on)
-                VALUES (?, ?)
-                """,
-                (step_id, depends_on),
+                text("""
+                INSERT INTO step_dependencies (step_id, depends_on)
+                VALUES (:step_id, :depends_on)
+                ON CONFLICT DO NOTHING
+                """),
+                {"step_id": step_id, "depends_on": depends_on},
             )
             conn.commit()
 
@@ -198,12 +229,15 @@ class JurisdictionConfigRepository:
             True if a dependency was removed
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                "DELETE FROM step_dependencies WHERE step_id = ? AND depends_on = ?",
-                (step_id, depends_on),
+            result = conn.execute(
+                text("""
+                DELETE FROM step_dependencies
+                WHERE step_id = :step_id AND depends_on = :depends_on
+                """),
+                {"step_id": step_id, "depends_on": depends_on},
             )
             conn.commit()
-            return cursor.rowcount > 0
+            return result.rowcount > 0
 
     # =========================================================================
     # Obligation Conflict Operations
@@ -219,24 +253,25 @@ class JurisdictionConfigRepository:
             List of conflict dictionaries
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM obligation_conflicts
-                WHERE obligation_a = ? OR obligation_b = ?
+            result = conn.execute(
+                text("""
+                SELECT obligation_a, obligation_b, conflict_type, severity, resolution_hint
+                FROM obligation_conflicts
+                WHERE obligation_a = :obligation OR obligation_b = :obligation
                 ORDER BY obligation_a, obligation_b
-                """,
-                (obligation, obligation),
+                """),
+                {"obligation": obligation},
             )
 
             return [
                 {
-                    "obligation_a": row["obligation_a"],
-                    "obligation_b": row["obligation_b"],
-                    "conflict_type": row["conflict_type"],
-                    "severity": row["severity"],
-                    "resolution_hint": row["resolution_hint"],
+                    "obligation_a": row[0],
+                    "obligation_b": row[1],
+                    "conflict_type": row[2],
+                    "severity": row[3],
+                    "resolution_hint": row[4],
                 }
-                for row in cursor.fetchall()
+                for row in result.fetchall()
             ]
 
     def get_all_obligation_conflicts(self) -> list[dict[str, Any]]:
@@ -246,19 +281,23 @@ class JurisdictionConfigRepository:
             List of conflict dictionaries
         """
         with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM obligation_conflicts ORDER BY obligation_a, obligation_b"
+            result = conn.execute(
+                text("""
+                SELECT obligation_a, obligation_b, conflict_type, severity, resolution_hint
+                FROM obligation_conflicts
+                ORDER BY obligation_a, obligation_b
+                """)
             )
 
             return [
                 {
-                    "obligation_a": row["obligation_a"],
-                    "obligation_b": row["obligation_b"],
-                    "conflict_type": row["conflict_type"],
-                    "severity": row["severity"],
-                    "resolution_hint": row["resolution_hint"],
+                    "obligation_a": row[0],
+                    "obligation_b": row[1],
+                    "conflict_type": row[2],
+                    "severity": row[3],
+                    "resolution_hint": row[4],
                 }
-                for row in cursor.fetchall()
+                for row in result.fetchall()
             ]
 
     def are_obligations_conflicting(
@@ -277,22 +316,23 @@ class JurisdictionConfigRepository:
         a, b = sorted([obligation_a, obligation_b])
 
         with get_db() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM obligation_conflicts
-                WHERE obligation_a = ? AND obligation_b = ?
-                """,
-                (a, b),
+            result = conn.execute(
+                text("""
+                SELECT obligation_a, obligation_b, conflict_type, severity, resolution_hint
+                FROM obligation_conflicts
+                WHERE obligation_a = :a AND obligation_b = :b
+                """),
+                {"a": a, "b": b},
             )
-            row = cursor.fetchone()
+            row = result.fetchone()
 
             if row:
                 return {
-                    "obligation_a": row["obligation_a"],
-                    "obligation_b": row["obligation_b"],
-                    "conflict_type": row["conflict_type"],
-                    "severity": row["severity"],
-                    "resolution_hint": row["resolution_hint"],
+                    "obligation_a": row[0],
+                    "obligation_b": row[1],
+                    "conflict_type": row[2],
+                    "severity": row[3],
+                    "resolution_hint": row[4],
                 }
             return None
 
@@ -318,12 +358,22 @@ class JurisdictionConfigRepository:
 
         with get_db() as conn:
             conn.execute(
-                """
-                INSERT OR REPLACE INTO obligation_conflicts
+                text("""
+                INSERT INTO obligation_conflicts
                 (obligation_a, obligation_b, conflict_type, severity, resolution_hint)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (a, b, conflict_type, severity, resolution_hint),
+                VALUES (:a, :b, :conflict_type, :severity, :resolution_hint)
+                ON CONFLICT (obligation_a, obligation_b) DO UPDATE SET
+                    conflict_type = :conflict_type,
+                    severity = :severity,
+                    resolution_hint = :resolution_hint
+                """),
+                {
+                    "a": a,
+                    "b": b,
+                    "conflict_type": conflict_type,
+                    "severity": severity,
+                    "resolution_hint": resolution_hint,
+                },
             )
             conn.commit()
 
