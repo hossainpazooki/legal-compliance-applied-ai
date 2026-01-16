@@ -10,7 +10,7 @@ This page provides:
 
 import streamlit as st
 
-from frontend.helpers import get_analytics_client
+from frontend.helpers import get_analytics_client, get_rule_ids
 from frontend.ui import (
     render_embedding_type_selector,
     render_search_mode_selector,
@@ -61,30 +61,22 @@ def main():
         st.markdown("---")
 
         if search_mode == "by_rule":
-            # Rule selection
-            try:
-                # Get rules from coverage endpoint (has rule list)
-                coverage = client.get_coverage()
-                # Build rule list from coverage data
-                rules_list = []
-                for framework, data in coverage.get("coverage_by_framework", {}).items():
-                    for article, count in data.get("rules_per_article", {}).items():
-                        rules_list.append({"rule_id": f"{framework}_{article}"})
+            # Rule selection with dropdown
+            available_rules = get_rule_ids()
 
-                # Actually get rules from the summary endpoint or another way
-                # For now, let's use a simple approach
-                st.text_input(
+            if available_rules:
+                query_rule_id = st.selectbox(
                     "Rule ID",
-                    key="rule_id_input",
-                    placeholder="Enter rule ID (e.g., mica_art36_authorization)",
+                    options=available_rules,
+                    key="rule_id_select",
+                    help="Select a rule to find similar rules",
                 )
-                query_rule_id = st.session_state.get("rule_id_input", "")
-
-            except Exception:
+            else:
                 query_rule_id = st.text_input(
                     "Rule ID",
                     key="rule_id_input_fallback",
                     placeholder="Enter rule ID",
+                    help="Could not load rules from API",
                 )
         else:
             st.info(f"Search mode '{search_mode}' not yet implemented.")

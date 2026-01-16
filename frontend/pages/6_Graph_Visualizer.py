@@ -11,7 +11,7 @@ This page provides:
 
 import streamlit as st
 
-from frontend.helpers import get_analytics_client
+from frontend.helpers import get_analytics_client, get_rule_ids
 from frontend.ui import (
     render_graph_controls,
     render_pyvis_graph,
@@ -63,41 +63,44 @@ def main():
         # Rule selection
         st.subheader("Select Rules")
 
-        # Get available rules from coverage
-        try:
-            coverage = client.get_coverage()
-            available_rules = []
-            for framework, data in coverage.get("coverage_by_framework", {}).items():
-                for article in data.get("rules_per_article", {}).keys():
-                    rule_id = f"{framework.lower()}_{article.lower().replace(' ', '_')}"
-                    available_rules.append({
-                        "rule_id": rule_id,
-                        "framework": framework,
-                        "article": article,
-                    })
-        except Exception:
-            available_rules = []
+        # Get available rules from API
+        available_rules = get_rule_ids()
 
         if view_mode == "single_rule":
-            selected_rule = st.text_input(
-                "Rule ID",
-                key="rule_id_input",
-                placeholder="e.g., mica_art36_authorization",
-            )
+            if available_rules:
+                selected_rule = st.selectbox(
+                    "Rule ID",
+                    options=available_rules,
+                    key="rule_id_input",
+                    help="Select a rule to visualize",
+                )
+            else:
+                selected_rule = st.text_input(
+                    "Rule ID",
+                    key="rule_id_input_fallback",
+                    placeholder="e.g., mica_art38_reserve_assets",
+                )
         elif view_mode == "comparison":
-            col1, col2 = st.columns(2)
-            with col1:
-                rule1 = st.text_input(
+            if available_rules:
+                rule1 = st.selectbox(
                     "Rule 1",
+                    options=available_rules,
                     key="rule1_input",
-                    placeholder="First rule",
+                    help="First rule to compare",
                 )
-            with col2:
-                rule2 = st.text_input(
+                rule2 = st.selectbox(
                     "Rule 2",
+                    options=available_rules,
+                    index=min(1, len(available_rules) - 1),
                     key="rule2_input",
-                    placeholder="Second rule",
+                    help="Second rule to compare",
                 )
+            else:
+                col1, col2 = st.columns(2)
+                with col1:
+                    rule1 = st.text_input("Rule 1", key="rule1_input_fallback")
+                with col2:
+                    rule2 = st.text_input("Rule 2", key="rule2_input_fallback")
         else:
             selected_rule = None
 

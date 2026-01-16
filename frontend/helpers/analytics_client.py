@@ -53,6 +53,18 @@ class AnalyticsClient:
         return response.json()
 
     # =========================================================================
+    # Rules List
+    # =========================================================================
+
+    def get_rules(self) -> dict:
+        """Get list of available rules.
+
+        Returns:
+            Dict with rules list containing rule_id, description, tags, etc.
+        """
+        return self._get("/rules")
+
+    # =========================================================================
     # Summary & Health
     # =========================================================================
 
@@ -317,3 +329,65 @@ def reset_analytics_client() -> None:
     """Reset the global analytics client."""
     global _client
     _client = None
+
+
+def fetch_available_rules() -> list[dict]:
+    """Fetch available rules from the API.
+
+    Returns:
+        List of rule dicts with rule_id, description, tags, source, etc.
+        Returns empty list on error.
+    """
+    try:
+        client = get_analytics_client()
+        response = client.get_rules()
+        return response.get("rules", [])
+    except Exception:
+        return []
+
+
+def get_rule_ids() -> list[str]:
+    """Get list of available rule IDs.
+
+    Returns:
+        List of rule_id strings, sorted alphabetically.
+    """
+    rules = fetch_available_rules()
+    return sorted([r.get("rule_id", "") for r in rules if r.get("rule_id")])
+
+
+def get_rules_by_jurisdiction() -> dict[str, list[str]]:
+    """Get rules grouped by jurisdiction/source.
+
+    Returns:
+        Dict mapping jurisdiction/source to list of rule_ids.
+    """
+    rules = fetch_available_rules()
+    by_jurisdiction: dict[str, list[str]] = {}
+
+    for rule in rules:
+        rule_id = rule.get("rule_id", "")
+        source = rule.get("source", "Unknown")
+        # Extract jurisdiction from source (e.g., "mica_2023" -> "MiCA")
+        if "mica" in source.lower():
+            jurisdiction = "EU - MiCA"
+        elif "fca" in source.lower():
+            jurisdiction = "UK - FCA"
+        elif "sec" in source.lower() or "securities_act" in source.lower():
+            jurisdiction = "US - SEC"
+        elif "mas" in source.lower() or "psa" in source.lower():
+            jurisdiction = "SG - MAS"
+        elif "finma" in source.lower() or "finsa" in source.lower():
+            jurisdiction = "CH - FINMA"
+        else:
+            jurisdiction = "Other"
+
+        if jurisdiction not in by_jurisdiction:
+            by_jurisdiction[jurisdiction] = []
+        by_jurisdiction[jurisdiction].append(rule_id)
+
+    # Sort rules within each jurisdiction
+    for jurisdiction in by_jurisdiction:
+        by_jurisdiction[jurisdiction].sort()
+
+    return by_jurisdiction

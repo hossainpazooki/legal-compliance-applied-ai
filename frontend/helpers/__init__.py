@@ -21,6 +21,9 @@ from frontend.helpers.analytics_client import (
     AnalyticsClient,
     get_analytics_client,
     reset_analytics_client,
+    fetch_available_rules,
+    get_rule_ids,
+    get_rules_by_jurisdiction,
 )
 
 __all__ = [
@@ -44,4 +47,7 @@ __all__ = [
     "AnalyticsClient",
     "get_analytics_client",
     "reset_analytics_client",
+    "fetch_available_rules",
+    "get_rule_ids",
+    "get_rules_by_jurisdiction",
 ]
