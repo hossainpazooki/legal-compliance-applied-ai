@@ -10,8 +10,21 @@ from __future__ import annotations
 from typing import Any
 import requests
 
-# Default API URL
+# Default API URL (local development)
 DEFAULT_API_URL = "http://localhost:8000"
+
+
+def _get_api_url() -> str:
+    """Get API URL from Streamlit secrets or use default.
+
+    Returns:
+        API URL string
+    """
+    try:
+        import streamlit as st
+        return st.secrets.get("api", {}).get("url", DEFAULT_API_URL)
+    except Exception:
+        return DEFAULT_API_URL
 
 
 class AnalyticsClient:
@@ -284,18 +297,19 @@ class AnalyticsClient:
 _client: AnalyticsClient | None = None
 
 
-def get_analytics_client(base_url: str = DEFAULT_API_URL) -> AnalyticsClient:
+def get_analytics_client(base_url: str | None = None) -> AnalyticsClient:
     """Get or create the global analytics client.
 
     Args:
-        base_url: API base URL
+        base_url: API base URL (reads from st.secrets if not provided)
 
     Returns:
         AnalyticsClient instance
     """
     global _client
     if _client is None:
-        _client = AnalyticsClient(base_url)
+        url = base_url or _get_api_url()
+        _client = AnalyticsClient(url)
     return _client
 
 
