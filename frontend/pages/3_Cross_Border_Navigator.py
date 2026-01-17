@@ -26,6 +26,12 @@ from backend.rule_service.app.services.jurisdiction.pathway import (
     aggregate_obligations,
     estimate_timeline,
 )
+from backend.synthetic_data.config import (
+    INSTRUMENT_TYPES,
+    ACTIVITY_TYPES,
+    JURISDICTIONS,
+    RULE_DISTRIBUTIONS,
+)
 from frontend.helpers import get_analytics_client, get_rules_by_jurisdiction
 
 # -----------------------------------------------------------------------------
@@ -89,9 +95,9 @@ with col_sum1:
     total_rules = sum(len(r) for r in rules_by_jur.values()) if rules_by_jur else 0
     st.metric("Total Rules", total_rules)
 with col_sum2:
-    st.metric("Jurisdictions", len(rules_by_jur) if rules_by_jur else 5)
+    st.metric("Jurisdictions", len(rules_by_jur) if rules_by_jur else len(JURISDICTIONS))
 with col_sum3:
-    st.metric("Regulatory Regimes", "8")
+    st.metric("Regulatory Regimes", len(RULE_DISTRIBUTIONS))
 
 st.divider()
 
@@ -106,40 +112,27 @@ col1, col2 = st.columns(2)
 with col1:
     issuer_jurisdiction = st.selectbox(
         "Issuer Jurisdiction",
-        options=["EU", "UK", "US", "CH", "SG"],
+        options=JURISDICTIONS,
         index=3,  # Default to CH
         help="Where is the issuer/operator based?",
     )
 
     instrument_type = st.selectbox(
         "Instrument Type",
-        options=[
-            "stablecoin",
-            "crypto_asset",
-            "tokenized_bond",
-            "utility_token",
-            "art",
-            "emt",
-        ],
-        help="Type of digital asset or token",
+        options=INSTRUMENT_TYPES,
+        help="Type of digital asset or token (from synthetic_data/config.py)",
     )
 
     activity = st.selectbox(
         "Activity",
-        options=[
-            "public_offer",
-            "financial_promotion",
-            "custody",
-            "exchange",
-            "transfer",
-        ],
-        help="Regulatory activity being performed",
+        options=ACTIVITY_TYPES,
+        help="Regulatory activity (from synthetic_data/config.py)",
     )
 
 with col2:
     target_jurisdictions = st.multiselect(
         "Target Markets",
-        options=["EU", "UK", "US", "CH", "SG"],
+        options=JURISDICTIONS,
         default=["EU", "UK"],
         help="Markets where you intend to offer or promote",
     )

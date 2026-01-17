@@ -48,6 +48,12 @@ from backend.synthetic_data import (
     VERIFICATION_TIERS,
     CONFIDENCE_RANGES,
 )
+from backend.synthetic_data.config import (
+    INSTRUMENT_TYPES,
+    ACTIVITY_TYPES,
+    ACTOR_TYPES,
+    JURISDICTIONS,
+)
 
 # Backend imports - Analytics (for guardrails)
 try:
@@ -754,25 +760,29 @@ with tab3:
         with scenario_col1:
             instrument_type = st.selectbox(
                 "Instrument Type",
-                ["art", "emt", "stablecoin", "payment_stablecoin", "utility_token", "rwa_token"],
+                INSTRUMENT_TYPES,
                 key="demo_instrument",
+                help="From synthetic_data/config.py",
             )
             jurisdiction = st.selectbox(
                 "Jurisdiction",
-                ["EU", "US", "UK"],
+                JURISDICTIONS,
                 key="demo_jurisdiction",
+                help="EU, UK, US, CH, SG",
             )
 
         with scenario_col2:
             activity = st.selectbox(
                 "Activity",
-                ["public_offer", "issuance", "redemption", "custody", "trading", "disclosure"],
+                ACTIVITY_TYPES,
                 key="demo_activity",
+                help="From synthetic_data/config.py",
             )
             entity_type = st.selectbox(
                 "Entity Type",
-                ["issuer", "casp", "investor", "custodian"],
+                ACTOR_TYPES,
                 key="demo_entity",
+                help="From synthetic_data/config.py",
             )
 
         facts = {

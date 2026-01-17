@@ -12,6 +12,26 @@ This page provides:
 import streamlit as st
 
 from frontend.helpers import get_analytics_client, get_rule_ids
+
+
+def infer_jurisdiction(rule_id: str) -> str:
+    """Infer jurisdiction from rule ID prefix."""
+    rule_lower = rule_id.lower()
+    if "mica_" in rule_lower:
+        return "EU"
+    elif "fca_" in rule_lower:
+        return "UK"
+    elif "genius_" in rule_lower:
+        return "US"
+    elif "finma_" in rule_lower or "ch_" in rule_lower:
+        return "CH"
+    elif "mas_" in rule_lower or "sg_" in rule_lower:
+        return "SG"
+    elif "rwa_" in rule_lower:
+        return "EU"  # RWA is EU hypothetical
+    return "EU"  # Default
+
+
 from frontend.ui import (
     render_graph_controls,
     render_pyvis_graph,
@@ -162,7 +182,7 @@ def _render_single_rule_graph(client, physics: bool):
             "article": " ".join(rule_id.split("_")[1:3]) if "_" in rule_id else "Unknown",
         },
         "tags": ["crypto", "authorization", "compliance"],
-        "jurisdiction": "EU" if "mica" in rule_id.lower() else "UK",
+        "jurisdiction": infer_jurisdiction(rule_id),
     }
 
     # Build graph
@@ -203,9 +223,10 @@ def _render_rule_network(client, physics: bool, threshold: float):
             rules = []
             for framework, data in coverage.get("coverage_by_framework", {}).items():
                 for article in data.get("rules_per_article", {}).keys():
+                    rule_id = f"{framework.lower()}_{article.lower().replace(' ', '_')}"
                     rules.append({
-                        "rule_id": f"{framework.lower()}_{article.lower().replace(' ', '_')}",
-                        "jurisdiction": "EU" if framework.upper() == "MICA" else "UK",
+                        "rule_id": rule_id,
+                        "jurisdiction": infer_jurisdiction(rule_id),
                         "description": f"{framework} {article}",
                     })
 
@@ -253,7 +274,7 @@ def _render_comparison(client, rule1: str, rule2: str, physics: bool):
         "description": f"Rule: {rule1}",
         "source": {"document_id": rule1.split("_")[0].upper() if "_" in rule1 else "Unknown", "article": ""},
         "tags": ["tag1", "tag2"],
-        "jurisdiction": "EU" if "mica" in rule1.lower() else "UK",
+        "jurisdiction": infer_jurisdiction(rule1),
     }
 
     rule2_data = {
@@ -261,7 +282,7 @@ def _render_comparison(client, rule1: str, rule2: str, physics: bool):
         "description": f"Rule: {rule2}",
         "source": {"document_id": rule2.split("_")[0].upper() if "_" in rule2 else "Unknown", "article": ""},
         "tags": ["tag1", "tag3"],
-        "jurisdiction": "UK" if "fca" in rule2.lower() else "EU",
+        "jurisdiction": infer_jurisdiction(rule2),
     }
 
     nodes1, edges1 = build_rule_graph(rule1_data)

@@ -27,6 +27,11 @@ from backend.rule_service.app.services.schema import DecisionBranch, DecisionLea
 from backend.verification_service.app.services import ConsistencyEngine
 from backend.analytics_service.app.services import ErrorPatternAnalyzer, DriftDetector
 from backend.core.ontology import Scenario
+from backend.synthetic_data.config import (
+    INSTRUMENT_TYPES,
+    ACTIVITY_TYPES,
+    JURISDICTIONS,
+)
 from backend.core.visualization import (
     TreeAdapter,
     TreeGraph,
@@ -509,26 +514,29 @@ with center_col:
             st.markdown("#### Scenario Builder")
             st.caption("Build a scenario and evaluate the rule to see the decision trace.")
 
-            # Scenario inputs
+            # Scenario inputs (using config values for consistency)
             scenario_col1, scenario_col2 = st.columns(2)
 
             with scenario_col1:
                 instrument_type = st.selectbox(
                     "Instrument Type",
-                    options=["art", "emt", "stablecoin", "utility_token", "rwa_token", "rwa_debt", "rwa_equity"],
+                    options=INSTRUMENT_TYPES,
                     key="trace_instrument",
+                    help="Defined in synthetic_data/config.py",
                 )
                 jurisdiction = st.selectbox(
                     "Jurisdiction",
-                    options=["EU", "US", "UK", "Other"],
+                    options=JURISDICTIONS,
                     key="trace_jurisdiction",
+                    help="EU, UK, US, CH, SG",
                 )
 
             with scenario_col2:
                 activity = st.selectbox(
                     "Activity",
-                    options=["public_offer", "admission_to_trading", "custody", "exchange", "tokenization", "disclosure"],
+                    options=ACTIVITY_TYPES,
                     key="trace_activity",
+                    help="Defined in synthetic_data/config.py",
                 )
 
             # Additional attributes

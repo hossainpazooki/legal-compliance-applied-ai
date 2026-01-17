@@ -14,6 +14,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
+import pandas as pd
+
+# Backend imports for dynamic rule counts
+from backend.rule_service.app.services import RuleLoader
+from backend.synthetic_data.config import (
+    RULE_DISTRIBUTIONS,
+    JURISDICTIONS,
+    TARGET_VOLUMES,
+)
 
 # -----------------------------------------------------------------------------
 # Page Configuration
@@ -120,38 +129,82 @@ st.divider()
 
 st.header("Regulatory Frameworks Modeled")
 
+# Load actual rules to get dynamic counts
+@st.cache_resource
+def load_rule_counts() -> dict[str, int]:
+    """Load rules and count by framework."""
+    loader = RuleLoader()
+    rules_dir = Path(__file__).parent.parent / "backend" / "rule_service" / "data"
+    try:
+        loader.load_directory(rules_dir)
+    except FileNotFoundError:
+        pass
+
+    counts = {"mica": 0, "fca": 0, "genius": 0, "rwa": 0}
+    for rule in loader.get_all_rules():
+        rule_id = rule.rule_id.lower()
+        if rule_id.startswith("mica_"):
+            counts["mica"] += 1
+        elif rule_id.startswith("fca_"):
+            counts["fca"] += 1
+        elif rule_id.startswith("genius_"):
+            counts["genius"] += 1
+        elif rule_id.startswith("rwa_"):
+            counts["rwa"] += 1
+    return counts
+
+rule_counts = load_rule_counts()
+total_rules = sum(rule_counts.values())
+
+# Framework summary metrics
+fw_col1, fw_col2, fw_col3, fw_col4 = st.columns(4)
+with fw_col1:
+    st.metric("Total Rules", total_rules)
+with fw_col2:
+    st.metric("Jurisdictions", len(JURISDICTIONS))
+with fw_col3:
+    st.metric("Test Scenarios", TARGET_VOLUMES["scenarios"])
+with fw_col4:
+    st.metric("Frameworks", len(RULE_DISTRIBUTIONS))
+
+st.divider()
+
+# Framework details table
 framework_data = [
     {
         "Framework": "MiCA (EU)",
         "Document ID": "mica_2023",
-        "Rules": "9 rules",
+        "Rules": f"{rule_counts['mica']} rules",
         "Coverage": "Public offers, ARTs, EMTs, CASPs, Market abuse",
-        "Status": "Modeled",
+        "Accuracy": "High (enacted law)",
+        "Status": "Active",
+    },
+    {
+        "Framework": "FCA Crypto (UK)",
+        "Document ID": "fca_crypto_2024",
+        "Rules": f"{rule_counts['fca']} rules",
+        "Coverage": "Financial promotions, risk warnings",
+        "Accuracy": "High (enacted rules)",
+        "Status": "Active",
     },
     {
         "Framework": "GENIUS Act (US)",
         "Document ID": "genius_act_2025",
-        "Rules": "6 rules",
+        "Rules": f"{rule_counts['genius']} rules",
         "Coverage": "Stablecoin issuers, reserves, redemption, AML",
+        "Accuracy": "Medium (proposed bill)",
         "Status": "Illustrative",
     },
     {
         "Framework": "RWA Tokenization",
         "Document ID": "rwa_eu_2025",
-        "Rules": "2 rules",
-        "Coverage": "Authorization, custody requirements",
+        "Rules": f"{rule_counts['rwa']} rules",
+        "Coverage": "Authorization, custody, disclosure",
+        "Accuracy": "Low (hypothetical)",
         "Status": "Illustrative",
-    },
-    {
-        "Framework": "DLT Pilot",
-        "Document ID": "dlt_pilot_2022",
-        "Rules": "—",
-        "Coverage": "Corpus only (future modeling)",
-        "Status": "Planned",
     },
 ]
 
-import pandas as pd
 st.dataframe(pd.DataFrame(framework_data), use_container_width=True, hide_index=True)
 
 st.divider()

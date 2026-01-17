@@ -50,6 +50,16 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Windows reserved filenames (prevent accidental creation)
+nul
+NUL
+con
+CON
+prn
+PRN
+aux
+AUX
+
 # OCaml build
 _build/
 *.byte
