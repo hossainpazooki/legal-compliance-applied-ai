@@ -140,7 +140,7 @@ def load_rule_counts() -> dict[str, int]:
     except FileNotFoundError:
         pass
 
-    counts = {"mica": 0, "fca": 0, "genius": 0, "rwa": 0}
+    counts = {"mica": 0, "fca": 0, "genius": 0, "finma": 0, "mas": 0, "rwa": 0}
     for rule in loader.get_all_rules():
         rule_id = rule.rule_id.lower()
         if rule_id.startswith("mica_"):
@@ -149,6 +149,10 @@ def load_rule_counts() -> dict[str, int]:
             counts["fca"] += 1
         elif rule_id.startswith("genius_"):
             counts["genius"] += 1
+        elif rule_id.startswith("finma_"):
+            counts["finma"] += 1
+        elif rule_id.startswith("mas_"):
+            counts["mas"] += 1
         elif rule_id.startswith("rwa_"):
             counts["rwa"] += 1
     return counts
@@ -183,7 +187,7 @@ framework_data = [
         "Framework": "FCA Crypto (UK)",
         "Document ID": "fca_crypto_2024",
         "Rules": f"{rule_counts['fca']} rules",
-        "Coverage": "Financial promotions, risk warnings",
+        "Coverage": "Financial promotions, risk warnings, cooling-off",
         "Accuracy": "High (enacted rules)",
         "Status": "Active",
     },
@@ -192,8 +196,24 @@ framework_data = [
         "Document ID": "genius_act_2025",
         "Rules": f"{rule_counts['genius']} rules",
         "Coverage": "Stablecoin issuers, reserves, redemption, AML",
-        "Accuracy": "Medium (proposed bill)",
-        "Status": "Illustrative",
+        "Accuracy": "High (enacted law)",
+        "Status": "Active",
+    },
+    {
+        "Framework": "FINMA DLT (CH)",
+        "Document ID": "finma_dlt_2021",
+        "Rules": f"{rule_counts['finma']} rules",
+        "Coverage": "Token classification, DLT facilities, custody, AML",
+        "Accuracy": "High (enacted law)",
+        "Status": "Active",
+    },
+    {
+        "Framework": "MAS PSA (SG)",
+        "Document ID": "mas_psa_2019",
+        "Rules": f"{rule_counts['mas']} rules",
+        "Coverage": "DPT licensing, custody, stablecoin framework",
+        "Accuracy": "High (enacted law)",
+        "Status": "Active",
     },
     {
         "Framework": "RWA Tokenization",

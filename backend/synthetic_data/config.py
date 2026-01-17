@@ -60,7 +60,7 @@ SCENARIO_CATEGORIES: dict[str, dict[str, Any]] = {
         "description": "Multi-jurisdiction scenarios",
         "characteristics": {
             "multi_jurisdiction": True,
-            "target_markets": ["EU", "UK", "US"],
+            "target_markets": ["EU", "UK", "US", "CH", "SG"],
         },
     },
     "temporal": {
@@ -120,8 +120,8 @@ RULE_DISTRIBUTIONS: dict[str, dict[str, Any]] = {
         "framework": "GENIUS Act",
         "jurisdiction": "US",
         "document_id": "genius_act_2025",
-        "accuracy": "medium",
-        "note": "Illustrative - proposed legislation",
+        "accuracy": "high",
+        "note": "Enacted law (July 2025)",
         "articles": [
             "Sec. 101 (Definitions)",
             "Sec. 102 (Issuer requirements)",
@@ -147,6 +147,36 @@ RULE_DISTRIBUTIONS: dict[str, dict[str, Any]] = {
             "Art. 5 (Tokenization process)",
             "Art. 6 (Transfer restrictions)",
             "Art. 7 (Disclosure)",
+        ],
+    },
+    "finma_ch": {
+        "count_range": (8, 12),
+        "framework": "FINMA DLT",
+        "jurisdiction": "CH",
+        "document_id": "finma_dlt_2021",
+        "accuracy": "high",
+        "articles": [
+            "ICO Guidelines (Token classification)",
+            "FMIA Art. 2(b) (Securities definition)",
+            "FMIA Art. 73a-73f (DLT Trading Facilities)",
+            "Banking Act Art. 16 (Custody segregation)",
+            "AMLA (AML for payment tokens)",
+            "Stablecoin Supplement (Classification)",
+        ],
+    },
+    "mas_sg": {
+        "count_range": (8, 12),
+        "framework": "MAS PSA",
+        "jurisdiction": "SG",
+        "document_id": "psa_2019",
+        "accuracy": "high",
+        "articles": [
+            "PSA Part 2 (DPT licensing)",
+            "PSA Part 3 (Asset segregation)",
+            "PSN02 (AML/CFT requirements)",
+            "Consumer Protection Guidelines",
+            "Stablecoin Framework (2023)",
+            "FSMA (DTSP offshore)",
         ],
     },
 }

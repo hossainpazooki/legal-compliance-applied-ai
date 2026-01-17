@@ -11,7 +11,7 @@ The Streamlit frontend provides seven interactive tools for exploring and analyz
 | Page | Capability |
 |------|------------|
 | **KE Workbench** | Browse rules, visualize decision trees, run trace tests, verify consistency |
-| **Production Demo** | Compile rules to IR, benchmark O(1) premise lookup, monitor cache performance |
+| **Production Demo** | Synthetic data strategy, deployment guardrails, O(1) premise lookup benchmarks |
 | **Navigator** | Cross-border compliance pathways with conflict detection and equivalence mapping |
 | **Embedding Explorer** | UMAP 2D/3D visualization of rule embeddings (semantic, structural, entity, legal) |
 | **Similarity Search** | Find related rules across jurisdictions using multi-type vector similarity |
@@ -234,7 +234,7 @@ backend/
 │       └── routes_production.py # /v2 production API
 │
 ├── rule_service/                # Rule management & evaluation
-│   ├── data/                    # YAML rule packs (MiCA, FCA, GENIUS)
+│   ├── data/                    # YAML rule packs (MiCA, FCA, GENIUS, FINMA, MAS, RWA)
 │   └── app/services/
 │       ├── loader.py            # YAML parsing
 │       ├── engine.py            # Decision engine with tracing
@@ -283,17 +283,23 @@ backend/
 ├── rag_service/                 # Retrieval-augmented context
 │   └── app/services/            # BM25 index, context helpers
 │
-└── rule_embedding_service/      # Vector embeddings & graph
-    └── app/services/
-        ├── embedding_service.py # 4-type embedding generation
-        └── graph.py             # Node2Vec graph embeddings
+├── rule_embedding_service/      # Vector embeddings & graph
+│   └── app/services/
+│       ├── embedding_service.py # 4-type embedding generation
+│       └── graph.py             # Node2Vec graph embeddings
+│
+└── synthetic_data/              # Test data generation
+    ├── config.py                # Thresholds, categories, distributions
+    ├── scenario_generator.py    # 500 test scenarios
+    ├── rule_generator.py        # Synthetic rules for coverage
+    └── verification_generator.py # Verification evidence
 
 frontend/
-├── Home.py                      # Landing page
+├── Home.py                      # Landing page with framework coverage
 ├── pages/
 │   ├── 1_KE_Workbench.py        # Rule verification & review
-│   ├── 2_Production_Demo.py     # IR compilation & benchmarks
-│   ├── 3_Navigator.py           # Cross-border compliance
+│   ├── 2_Production_Demo.py     # Synthetic data, guardrails, performance
+│   ├── 3_Cross_Border_Navigator.py  # Multi-jurisdiction compliance
 │   ├── 4_Embedding_Explorer.py  # UMAP visualization
 │   ├── 5_Similarity_Search.py   # Multi-type similarity search
 │   ├── 6_Graph_Visualizer.py    # Rule network graphs
@@ -305,19 +311,38 @@ frontend/
 └── helpers/
     └── analytics_client.py      # Analytics API client
 
-data/legal/                      # Legal corpus (MiCA, FCA, GENIUS Act)
+data/legal/                      # Legal corpus (MiCA, FCA, GENIUS, FINMA, MAS)
 docs/                            # Design documentation
 tests/                           # Test suite (591+ tests)
 ```
 
 ## Regulatory Frameworks
 
-| Framework | Jurisdiction | Status |
-|-----------|--------------|--------|
-| MiCA | EU | Modeled (9 rules) |
-| FCA Crypto | UK | Modeled (5 rules) |
-| GENIUS Act | US | Illustrative (6 rules) |
-| RWA Tokenization | EU | Illustrative (2 rules) |
+| Framework | Jurisdiction | Rules | Accuracy | Status |
+|-----------|--------------|-------|----------|--------|
+| **MiCA** | EU | 8 | High | Enacted law (2023/1114) |
+| **FCA Crypto** | UK | 5 | High | Enacted rules (COBS 4.12A) |
+| **GENIUS Act** | US | 6 | High | Enacted law (July 2025) |
+| **FINMA DLT** | CH | 6 | High | Enacted law (DLT Act 2021) |
+| **MAS PSA** | SG | 6 | High | Enacted law (PSA 2019) |
+| **RWA Tokenization** | EU | 3 | Low | Hypothetical framework |
+
+### Synthetic Test Coverage
+
+The `backend/synthetic_data/` package expands test coverage from ~30 to 500 scenarios:
+
+| Category | Count | Description |
+|----------|-------|-------------|
+| happy_path | 120 | Valid compliant scenarios |
+| edge_case | 120 | Threshold boundaries (€5M ART, 100% reserves) |
+| negative | 80 | Rule violations |
+| cross_border | 60 | Multi-jurisdiction conflicts |
+| stablecoin | 30 | ART/EMT/algorithmic distinctions |
+| exemption | 25 | Small offering, NFT, private placement |
+| temporal | 25 | Version-dependent |
+| defi | 20 | Decentralized protocol classification |
+| passporting | 10 | EU CASP passporting |
+| aml_travel_rule | 10 | KYC/originator data |
 
 ## Rule Embeddings
 
@@ -346,6 +371,7 @@ The system generates 4 types of vector embeddings per rule for multi-faceted sim
 | **analytics_service/** | Analysis | Rule clustering, drift detection, similarity search |
 | **rag_service/** | Retrieval | BM25 index, context helpers |
 | **rule_embedding_service/** | Embeddings | 4-type vectors, Node2Vec graph embeddings |
+| **synthetic_data/** | Test generation | Scenario/rule generators, threshold configs |
 
 ### Database Support
 
@@ -365,6 +391,7 @@ DATABASE_URL=postgresql://user:pass@host:5432/db
 - [Rule DSL](docs/rule_dsl.md) — YAML rule specification
 - [Engine Design](docs/engine_design.md) — Architecture details
 - [Embedding Service](docs/embedding_service.md) — Vector search design
+- [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — Test coverage expansion
 
 ## Disclaimer
 
