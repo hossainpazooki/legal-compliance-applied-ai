@@ -34,6 +34,10 @@ class TraceStep(BaseModel):
     condition: str
     result: bool
     value_checked: Any = None
+    # Droit-aligned additions for regulatory traceability
+    annotation_id: str | None = None
+    regulatory_version: str | None = None
+    interpretation_note: str | None = None
 
 
 class RuleMetadata(BaseModel):

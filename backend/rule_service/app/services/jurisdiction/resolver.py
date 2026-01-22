@@ -23,9 +23,13 @@ from backend.database_service.app.services.database import get_db
 DEFAULT_REGIMES: dict[str, str] = {
     "EU": "mica_2023",
     "UK": "fca_crypto_2024",
-    "US": "securities_act_1933",
+    "US": "genius_act_2025",          # Primary tokenization regime
+    "US_SEC": "securities_act_1933",   # Securities classification
+    "US_CFTC": "cftc_digital_assets_2024",  # Derivatives/commodities
     "CH": "finsa_dlt_2021",
     "SG": "psa_2019",
+    "HK": "sfc_vasp_2023",             # Hong Kong VASP regime
+    "JP": "psa_japan_2023",            # Japan stablecoin rules
 }
 
 

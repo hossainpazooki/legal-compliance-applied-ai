@@ -17,9 +17,13 @@ class JurisdictionCode(str, Enum):
     """Supported jurisdiction codes."""
     EU = "EU"
     US = "US"
+    US_SEC = "US_SEC"    # SEC jurisdiction for securities
+    US_CFTC = "US_CFTC"  # CFTC jurisdiction for derivatives/commodities
     UK = "UK"
     SG = "SG"
     CH = "CH"
+    HK = "HK"            # Hong Kong
+    JP = "JP"            # Japan
 
 
 # Jurisdiction metadata
@@ -27,16 +31,24 @@ JURISDICTION_NAMES: dict[JurisdictionCode, str] = {
     JurisdictionCode.EU: "European Union",
     JurisdictionCode.UK: "United Kingdom",
     JurisdictionCode.US: "United States",
+    JurisdictionCode.US_SEC: "United States (SEC)",
+    JurisdictionCode.US_CFTC: "United States (CFTC)",
     JurisdictionCode.SG: "Singapore",
     JurisdictionCode.CH: "Switzerland",
+    JurisdictionCode.HK: "Hong Kong",
+    JurisdictionCode.JP: "Japan",
 }
 
 JURISDICTION_AUTHORITIES: dict[JurisdictionCode, str] = {
     JurisdictionCode.EU: "ESMA",
     JurisdictionCode.UK: "FCA",
     JurisdictionCode.US: "SEC",
+    JurisdictionCode.US_SEC: "SEC",
+    JurisdictionCode.US_CFTC: "CFTC",
     JurisdictionCode.SG: "MAS",
     JurisdictionCode.CH: "FINMA",
+    JurisdictionCode.HK: "SFC",
+    JurisdictionCode.JP: "JFSA",
 }
 
 

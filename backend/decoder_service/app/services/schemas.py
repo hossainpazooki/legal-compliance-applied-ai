@@ -68,6 +68,8 @@ class ExplanationSummary(BaseModel):
 
     status: str  # "APPROVED", "CONDITIONAL", "DENIED", etc.
     confidence: float = Field(ge=0.0, le=1.0)
+    # Droit pattern: 'grounded' = from rule traversal, 'inferred' = LLM reasoning
+    confidence_level: Literal["grounded", "inferred"] = "grounded"
     primary_framework: str
     risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
 
