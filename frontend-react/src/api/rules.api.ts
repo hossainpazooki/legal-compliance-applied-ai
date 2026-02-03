@@ -41,8 +41,10 @@ export const rulesApi = {
   },
 
   // Get decision tree visualization
-  getTree: async (ruleId: string): Promise<unknown> => {
-    const { data } = await apiClient.get(`/ke/charts/decision-tree/${ruleId}`)
+  getTree: async (ruleId: string, format: string = 'json'): Promise<unknown> => {
+    const { data } = await apiClient.get(`/ke/charts/decision-tree/${ruleId}`, {
+      params: { format },
+    })
     return data
   },
 }
