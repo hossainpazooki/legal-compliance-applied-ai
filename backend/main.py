@@ -25,6 +25,9 @@ from backend.defi_risk import router as defi_risk_router
 from backend.token_compliance import router as token_compliance_router
 from backend.protocol_risk import router as protocol_risk_router
 
+# Temporal workflow router
+from backend.workflows import workflow_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -84,6 +87,9 @@ def create_app() -> FastAPI:
     app.include_router(token_compliance_router)  # /token-compliance
     app.include_router(protocol_risk_router)     # /protocol-risk
 
+    # Temporal workflow router
+    app.include_router(workflow_router)          # /workflows
+
     @app.get("/")
     async def root():
         """Root endpoint."""
@@ -106,6 +112,7 @@ def create_app() -> FastAPI:
                 "defi-risk": "/defi-risk/* - DeFi protocol risk scoring",
                 "token-compliance": "/token-compliance/* - Howey test, GENIUS Act analysis",
                 "protocol-risk": "/protocol-risk/* - Blockchain protocol risk assessment",
+                "workflows": "/workflows/* - Temporal workflow orchestration",
             },
         }
 

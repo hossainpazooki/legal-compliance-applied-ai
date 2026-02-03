@@ -3,9 +3,9 @@
 Implements verification tiers as defined in docs/semantic_consistency_regulatory_kg.md:
 - Tier 0: Schema & Structural Validation (implemented)
 - Tier 1: Lexical & Heuristic Analysis (implemented)
-- Tier 2: Semantic Similarity (stub)
-- Tier 3: NLI-based Entailment (stub)
-- Tier 4: Cross-Rule Consistency (stub)
+- Tier 2: Semantic Similarity (implemented - ML + heuristic fallback)
+- Tier 3: NLI-based Entailment (implemented - ML + heuristic fallback)
+- Tier 4: Cross-Rule Consistency (implemented - deterministic)
 """
 
 from __future__ import annotations
@@ -20,6 +20,34 @@ from backend.rules import (
     ConsistencySummary,
     ConsistencyEvidence,
     ConsistencyStatus,
+)
+
+# Import Tier 2-4 modules
+from .embeddings import (
+    embedding_available,
+    check_semantic_alignment,
+    check_obligation_similarity,
+    check_condition_grounding,
+    EmbeddingChecker,
+    SimilarityResult,
+)
+from .nli import (
+    nli_available,
+    check_entailment,
+    check_completeness,
+    NLIChecker,
+    NLILabel,
+    NLIResult,
+)
+from .cross_rule import (
+    check_cross_rule_consistency,
+    check_contradiction,
+    check_hierarchy,
+    check_temporal_consistency,
+    CrossRuleChecker,
+    ContradictionResult,
+    HierarchyResult,
+    TemporalResult,
 )
 
 
@@ -604,52 +632,16 @@ def check_exception_coverage(rule: Rule, source_text: str | None = None) -> Cons
 
 
 # =============================================================================
-# Tier 2-4: Stubs (require ML dependencies)
+# Tier 2-4: Imported from submodules
 # =============================================================================
-
-def check_semantic_alignment(rule: Rule, source_text: str | None = None) -> ConsistencyEvidence:
-    """Stub: Check semantic similarity between rule logic and source.
-
-    Requires: sentence-transformers
-    """
-    return _make_evidence(
-        tier=2,
-        category="semantic_alignment",
-        label="warning",
-        score=0.0,
-        details="Tier 2 semantic checks not implemented (requires ML dependencies)",
-    )
-
-
-def check_entailment(rule: Rule, source_text: str | None = None) -> ConsistencyEvidence:
-    """Stub: Check NLI entailment between source and rule conclusion.
-
-    Requires: NLI model (e.g., roberta-large-mnli)
-    """
-    return _make_evidence(
-        tier=3,
-        category="entailment",
-        label="warning",
-        score=0.0,
-        details="Tier 3 NLI checks not implemented (requires NLI model)",
-    )
-
-
-def check_cross_rule_consistency(
-    rule: Rule,
-    related_rules: list[Rule] | None = None
-) -> ConsistencyEvidence:
-    """Stub: Check consistency with related rules.
-
-    Requires: Rule graph traversal, potential contradiction detection
-    """
-    return _make_evidence(
-        tier=4,
-        category="no_contradiction",
-        label="warning",
-        score=0.0,
-        details="Tier 4 cross-rule checks not implemented",
-    )
+# Tier 2: check_semantic_alignment, check_obligation_similarity, check_condition_grounding
+#         from .embeddings (ML sentence-transformers + heuristic fallback)
+#
+# Tier 3: check_entailment, check_completeness
+#         from .nli (ML transformers/torch + heuristic fallback)
+#
+# Tier 4: check_cross_rule_consistency, check_contradiction, check_hierarchy, check_temporal_consistency
+#         from .cross_rule (deterministic, no ML required)
 
 
 # =============================================================================
@@ -958,13 +950,48 @@ class ConsistencyEngine:
                         details=f"Check failed with error: {e}",
                     ))
 
-        # Run tier 2+ stubs if requested
+        # Run tier 2 checks (semantic similarity - ML or heuristic fallback)
         if 2 in tiers:
-            evidence.append(check_semantic_alignment(rule, source_text))
+            try:
+                evidence.append(check_semantic_alignment(rule, source_text))
+                evidence.append(check_obligation_similarity(rule, source_text))
+                evidence.append(check_condition_grounding(rule, source_text))
+            except Exception as e:
+                evidence.append(_make_evidence(
+                    tier=2,
+                    category="check_error",
+                    label="fail",
+                    score=0.0,
+                    details=f"Tier 2 checks failed with error: {e}",
+                ))
+
+        # Run tier 3 checks (NLI entailment - ML or heuristic fallback)
         if 3 in tiers:
-            evidence.append(check_entailment(rule, source_text))
+            try:
+                evidence.append(check_entailment(rule, source_text))
+                evidence.append(check_completeness(rule, source_text))
+            except Exception as e:
+                evidence.append(_make_evidence(
+                    tier=3,
+                    category="check_error",
+                    label="fail",
+                    score=0.0,
+                    details=f"Tier 3 checks failed with error: {e}",
+                ))
+
+        # Run tier 4 checks (cross-rule consistency - deterministic)
         if 4 in tiers:
-            evidence.append(check_cross_rule_consistency(rule))
+            try:
+                # check_cross_rule_consistency returns list of 3 evidence items
+                evidence.extend(check_cross_rule_consistency(rule))
+            except Exception as e:
+                evidence.append(_make_evidence(
+                    tier=4,
+                    category="check_error",
+                    label="fail",
+                    score=0.0,
+                    details=f"Tier 4 checks failed with error: {e}",
+                ))
 
         # Compute summary
         summary = compute_summary(evidence)

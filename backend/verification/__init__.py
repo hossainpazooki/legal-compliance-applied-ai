@@ -1,4 +1,12 @@
-"""Verification domain - rule consistency checking and validation."""
+"""Verification domain - rule consistency checking and validation.
+
+Provides 5-tier semantic consistency verification:
+- Tier 0: Schema & Structural Validation
+- Tier 1: Lexical & Heuristic Analysis
+- Tier 2: Semantic Similarity (ML sentence-transformers + fallback)
+- Tier 3: NLI Entailment (ML transformers/torch + fallback)
+- Tier 4: Cross-Rule Consistency (deterministic)
+"""
 
 from .service import (
     ConsistencyEngine,
@@ -17,15 +25,44 @@ from .service import (
     check_keyword_overlap,
     check_negation_consistency,
     check_exception_coverage,
-    # Tier 2-4 stubs
-    check_semantic_alignment,
-    check_entailment,
-    check_cross_rule_consistency,
     # Utilities
     compute_summary,
 )
 
+# Tier 2: Embeddings
+from .embeddings import (
+    embedding_available,
+    check_semantic_alignment,
+    check_obligation_similarity,
+    check_condition_grounding,
+    EmbeddingChecker,
+    SimilarityResult,
+)
+
+# Tier 3: NLI
+from .nli import (
+    nli_available,
+    check_entailment,
+    check_completeness,
+    NLIChecker,
+    NLILabel,
+    NLIResult,
+)
+
+# Tier 4: Cross-Rule
+from .cross_rule import (
+    check_cross_rule_consistency,
+    check_contradiction,
+    check_hierarchy,
+    check_temporal_consistency,
+    CrossRuleChecker,
+    ContradictionResult,
+    HierarchyResult,
+    TemporalResult,
+)
+
 __all__ = [
+    # Engine and main entry
     "ConsistencyEngine",
     "verify_rule",
     # Tier 0 checks
@@ -42,10 +79,29 @@ __all__ = [
     "check_keyword_overlap",
     "check_negation_consistency",
     "check_exception_coverage",
-    # Tier 2-4 stubs
+    # Tier 2: Embeddings
+    "embedding_available",
     "check_semantic_alignment",
+    "check_obligation_similarity",
+    "check_condition_grounding",
+    "EmbeddingChecker",
+    "SimilarityResult",
+    # Tier 3: NLI
+    "nli_available",
     "check_entailment",
+    "check_completeness",
+    "NLIChecker",
+    "NLILabel",
+    "NLIResult",
+    # Tier 4: Cross-Rule
     "check_cross_rule_consistency",
+    "check_contradiction",
+    "check_hierarchy",
+    "check_temporal_consistency",
+    "CrossRuleChecker",
+    "ContradictionResult",
+    "HierarchyResult",
+    "TemporalResult",
     # Utilities
     "compute_summary",
 ]

@@ -1,0 +1,11 @@
+FROM temporalio/auto-setup:1.24.2
+
+# Configure for PostgreSQL persistence
+ENV DB=postgresql
+ENV DB_PORT=5432
+
+# Default namespace
+ENV DEFAULT_NAMESPACE=default
+
+# Expose Temporal ports
+EXPOSE 7233 7234 7235 7239
