@@ -1,0 +1,51 @@
+# Codecov configuration for legal-compliance-applied-ai
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  # Coverage precision
+  precision: 2
+  round: down
+  range: "60...100"
+
+  status:
+    # Project-level coverage requirements
+    project:
+      frontend:
+        paths:
+          - "frontend-react/src/**"
+        target: auto
+        threshold: 5%
+        informational: true
+
+    # Patch coverage (new/modified code)
+    patch:
+      default:
+        target: 70%
+        threshold: 10%
+        only_pulls: true
+        informational: true
+
+# Ignore certain paths from coverage
+ignore:
+  - "frontend-react/src/main.tsx"
+  - "frontend-react/src/vite-env.d.ts"
+  - "**/*.d.ts"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "**/*.spec.tsx"
+
+# Comment configuration for pull requests
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+# Flag management
+flags:
+  frontend:
+    paths:
+      - frontend-react/src/
+    carryforward: true

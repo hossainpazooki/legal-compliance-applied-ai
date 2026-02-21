@@ -237,6 +237,11 @@ function normalizeTreeData(data: unknown): TreeNode | null {
 
   const obj = data as Record<string, unknown>
 
+  // Handle ChartDataResponse format from backend (has data property)
+  if ('data' in obj && obj.data && typeof obj.data === 'object') {
+    return normalizeTreeNode(obj.data)
+  }
+
   // Handle different possible tree formats
   if ('tree' in obj && obj.tree) {
     return normalizeTreeNode(obj.tree)
@@ -256,24 +261,46 @@ function normalizeTreeNode(node: unknown): TreeNode | null {
 
   const obj = node as Record<string, unknown>
 
+  // Map backend type to frontend type
+  const nodeType = obj.type === 'leaf' ? 'outcome' :
+                   obj.type === 'branch' ? 'condition' :
+                   (obj.type as 'condition' | 'outcome') || (obj.children ? 'condition' : 'outcome')
+
+  // Build label from title (backend) or other fields
+  let label = String(obj.title || obj.label || obj.name || obj.id || 'Node')
+
+  // For branch nodes, show condition if available
+  if (obj.type === 'branch' && obj.condition) {
+    label = String(obj.condition)
+  }
+
   const treeNode: TreeNode = {
-    id: String(obj.id || obj.node_id || obj.name || Math.random().toString(36)),
-    label: String(obj.label || obj.name || obj.condition || obj.id || 'Node'),
-    type: (obj.type as 'condition' | 'outcome') || (obj.children ? 'condition' : 'outcome'),
+    id: String(obj.id || obj.node_id || obj.title || Math.random().toString(36)),
+    label,
+    type: nodeType,
     condition: obj.condition as string | undefined,
     result: obj.result as string | undefined,
     consistency: obj.consistency as 'consistent' | 'inconsistent' | 'unknown' | undefined,
     isTracePath: obj.isTracePath as boolean | undefined,
   }
 
-  // Handle children
+  // Handle children (backend uses branch: "true"/"false" to indicate path)
   if (obj.children && Array.isArray(obj.children)) {
     treeNode.children = obj.children
-      .map((child) => normalizeTreeNode(child))
+      .map((child) => {
+        const childObj = child as Record<string, unknown>
+        const childNode = normalizeTreeNode(child)
+        if (childNode && childObj.branch) {
+          // Prefix label with branch direction
+          const prefix = childObj.branch === 'true' ? 'Yes' : 'No'
+          childNode.label = `${prefix}: ${childNode.label}`
+        }
+        return childNode
+      })
       .filter((child): child is TreeNode => child !== null)
   }
 
-  // Handle yes/no branches (common in decision trees)
+  // Handle yes/no branches (alternative format)
   if (obj.yes || obj.no) {
     treeNode.children = []
     if (obj.yes) {

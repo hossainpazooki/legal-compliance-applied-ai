@@ -1,0 +1,270 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: 'Image tag to deploy (defaults to latest commit SHA)'
+        required: false
+        default: ''
+      skip-approval:
+        description: 'Skip manual approval (for emergencies only)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: legal-compliance-eks
+
+jobs:
+  # ─────────────────────────────────────────────
+  # VALIDATE DEPLOYMENT
+  # ─────────────────────────────────────────────
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image-tag }}" ]; then
+            echo "Using provided image tag: ${{ inputs.image-tag }}"
+            echo "value=${{ inputs.image-tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "Using latest commit SHA: ${{ github.sha }}"
+            echo "value=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Verify image exists
+        run: |
+          IMAGE_TAG="${{ steps.tag.outputs.value }}"
+
+          echo "Checking if Frontend image exists..."
+          aws ecr describe-images \
+            --repository-name legal-compliance-frontend \
+            --image-ids imageTag=$IMAGE_TAG \
+            || (echo "Frontend image not found!" && exit 1)
+
+          echo "Image verified!"
+
+  # ─────────────────────────────────────────────
+  # DEPLOY TO PRODUCTION
+  # ─────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production  # Requires manual approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name $EKS_CLUSTER --region $AWS_REGION
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Deploy with Kustomize
+        id: deploy
+        run: |
+          cd kube/overlays/prod
+
+          # Update image tags
+          kustomize edit set image \
+            legal-compliance-frontend=${{ steps.ecr.outputs.registry }}/legal-compliance-frontend:${{ needs.validate.outputs.image-tag }}
+
+          # Apply manifests
+          kubectl apply -k .
+
+      - name: Wait for Frontend rollout
+        id: rollout-frontend
+        run: |
+          kubectl rollout status deployment/frontend -n legal-compliance --timeout=300s
+
+      - name: Rollback on failure
+        if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          echo "Deployment failed, initiating rollback..."
+
+          kubectl rollout undo deployment/frontend -n legal-compliance
+
+          echo "Waiting for rollback to complete..."
+          kubectl rollout status deployment/frontend -n legal-compliance --timeout=120s
+
+          echo "Rollback completed"
+
+  # ─────────────────────────────────────────────
+  # PRODUCTION VALIDATION
+  # ─────────────────────────────────────────────
+  production-validation:
+    name: Production Validation
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for service to stabilize
+        run: sleep 30
+
+      - name: Frontend availability check
+        run: |
+          echo "Checking production frontend..."
+          for i in {1..6}; do
+            if curl -sf https://legal-compliance.example.com/; then
+              echo "Frontend check passed!"
+              exit 0
+            fi
+            echo "Retry $i/6..."
+            sleep 10
+          done
+          echo "Frontend check failed!"
+          exit 1
+
+  # ─────────────────────────────────────────────
+  # TAG RELEASE
+  # ─────────────────────────────────────────────
+  tag-release:
+    name: Tag Release
+    needs: [validate, deploy-production, production-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(date +'v%Y.%m.%d')-$(echo ${{ github.sha }} | cut -c1-7)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Production Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Production Deployment
+
+            **Image Tag:** `${{ needs.validate.outputs.image-tag }}`
+            **Deployed by:** @${{ github.actor }}
+            **Workflow run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### Changes
+            ${{ github.event.head_commit.message }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────
+  # NOTIFICATIONS
+  # ─────────────────────────────────────────────
+  notify:
+    name: Send Notifications
+    needs: [validate, deploy-production, production-validation]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.deploy-production.result }}" == "success" ]] && [[ "${{ needs.production-validation.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "emoji=:rocket:" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
+            echo "message=Production deployment successful!" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "emoji=:rotating_light:" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+            echo "message=Production deployment FAILED!" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "${{ steps.status.outputs.message }}",
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "${{ steps.status.outputs.emoji }} Production Deployment"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Status:*\n${{ steps.status.outputs.status }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Image Tag:*\n`${{ needs.validate.outputs.image-tag }}`"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Triggered by:*\n@${{ github.actor }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Environment:*\nProduction"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Workflow"
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        },
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Application"
+                          },
+                          "url": "https://legal-compliance.example.com"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

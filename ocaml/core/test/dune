@@ -1,8 +1,0 @@
-(test
- (name test_ontology)
- (libraries droit_core alcotest))
-
-(test
- (name test_rule_dsl)
- (libraries droit_core alcotest)
- (deps (glob_files ../rule_examples/*.yaml)))

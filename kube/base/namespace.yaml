@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: legal-compliance
+  labels:
+    app.kubernetes.io/name: legal-compliance
+    app.kubernetes.io/part-of: legal-compliance-platform

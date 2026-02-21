@@ -1,0 +1,194 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: legal-compliance-eks
+  ENVIRONMENT: staging
+
+jobs:
+  # ─────────────────────────────────────────────
+  # BUILD AND PUSH TO ECR
+  # ─────────────────────────────────────────────
+  build-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend-react
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/legal-compliance-frontend:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/legal-compliance-frontend:staging
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          build-args: |
+            VITE_API_URL=https://staging-api.legal-compliance.example.com
+
+  # ─────────────────────────────────────────────
+  # DEPLOY TO STAGING
+  # ─────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [build-push]
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name $EKS_CLUSTER --region $AWS_REGION
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Deploy with Kustomize
+        run: |
+          cd kube/overlays/dev
+
+          # Update image tags
+          kustomize edit set image \
+            legal-compliance-frontend=${{ steps.ecr.outputs.registry }}/legal-compliance-frontend:${{ github.sha }}
+
+          # Apply manifests
+          kubectl apply -k .
+
+      - name: Wait for Frontend rollout
+        run: |
+          kubectl rollout status deployment/frontend-dev -n legal-compliance-dev --timeout=300s
+
+  # ─────────────────────────────────────────────
+  # SMOKE TESTS
+  # ─────────────────────────────────────────────
+  smoke-test:
+    name: Staging Smoke Tests
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for service to be ready
+        run: sleep 30
+
+      - name: Frontend availability check
+        run: |
+          for i in {1..12}; do
+            echo "Attempt $i: Checking frontend..."
+            if curl -sf https://staging.legal-compliance.example.com/; then
+              echo "Frontend check passed!"
+              exit 0
+            fi
+            echo "Waiting 10 seconds before retry..."
+            sleep 10
+          done
+          echo "Frontend check failed after 12 attempts"
+          exit 1
+
+  # ─────────────────────────────────────────────
+  # NOTIFICATIONS
+  # ─────────────────────────────────────────────
+  notify:
+    name: Send Notifications
+    needs: [deploy-staging, smoke-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.deploy-staging.result }}" == "success" ]] && [[ "${{ needs.smoke-test.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "emoji=:white_check_mark:" >> $GITHUB_OUTPUT
+            echo "message=Staging deployment successful" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "emoji=:x:" >> $GITHUB_OUTPUT
+            echo "message=Staging deployment failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "${{ steps.status.outputs.message }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ steps.status.outputs.emoji }} Staging Deployment"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ steps.status.outputs.status }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n${{ github.ref_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n`${{ github.sha }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Author:*\n${{ github.actor }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

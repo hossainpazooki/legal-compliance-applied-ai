@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: legal-compliance-dev
+
+resources:
+  - ../../base
+  - ingress.yaml
+
+nameSuffix: -dev
+
+# Dev uses minimal replicas
+replicas:
+  - name: frontend
+    count: 1
+
+# Dev image tags
+images:
+  - name: legal-compliance-frontend
+    newName: ${ECR_REGISTRY}/legal-compliance-frontend
+    newTag: latest
+
+# Reduce resources for dev
+patches:
+  # Disable HPA for dev (fixed replicas)
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
+    target:
+      kind: HorizontalPodAutoscaler
+
+commonLabels:
+  environment: dev

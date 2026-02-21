@@ -1,4 +1,0 @@
-(library
- (name droit_core)
- (public_name droit_core)
- (libraries yaml))

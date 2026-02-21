@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
-import { useRules, useDecision } from '@/hooks'
-import { MetricCard, LoadingOverlay, StatusBadge } from '@/components/common'
+import { useRules, useDecision, useHealth, useDatabaseStats, useCacheStats, useSystemConfig } from '@/hooks'
+import { MetricCard, LoadingOverlay, StatusBadge, FeatureToggle } from '@/components/common'
 
-type Tab = 'scenarios' | 'guardrails' | 'performance' | 'verification'
+type Tab = 'scenarios' | 'guardrails' | 'performance' | 'verification' | 'system'
 
 interface SyntheticScenario {
   id: string
@@ -30,6 +30,12 @@ export function ProductionDemo() {
 
   const { data: rulesData, isLoading: rulesLoading } = useRules()
   const { mutate: decide, isPending: decisionPending } = useDecision()
+
+  // Production monitoring hooks
+  const { data: healthData } = useHealth()
+  const { data: dbStats } = useDatabaseStats()
+  const { data: cacheStats } = useCacheStats()
+  const { data: sysConfig } = useSystemConfig()
 
   // Generate synthetic scenarios from rules
   useMemo(() => {
@@ -118,7 +124,7 @@ export function ProductionDemo() {
     []
   )
 
-  // Performance metrics
+  // Performance metrics - mix of demo values and live data
   const performanceMetrics = useMemo(
     () => ({
       totalDecisions: 15420,
@@ -126,11 +132,16 @@ export function ProductionDemo() {
       p95LatencyMs: 45,
       p99LatencyMs: 67,
       successRate: 99.7,
-      cacheHitRate: 85.2,
-      rulesEvaluated: rulesData?.rules.length || 0,
+      // Live data from backend
+      cacheHitRate: cacheStats?.hit_rate ?? 0,
+      cacheSize: cacheStats?.size ?? 0,
+      cacheHits: cacheStats?.hits ?? 0,
+      cacheMisses: cacheStats?.misses ?? 0,
+      rulesLoaded: dbStats?.rules_count ?? rulesData?.rules.length ?? 0,
+      compiledRules: dbStats?.compiled_rules_count ?? 0,
       memoryMb: 128,
     }),
-    [rulesData]
+    [rulesData, cacheStats, dbStats]
   )
 
   const handleRunScenario = (scenario: SyntheticScenario) => {
@@ -206,7 +217,7 @@ export function ProductionDemo() {
       <div className="card">
         <div className="border-b border-slate-700 -mx-6 -mt-6 px-6 mb-6">
           <nav className="flex gap-4">
-            {(['scenarios', 'guardrails', 'performance', 'verification'] as Tab[]).map((tab) => (
+            {(['scenarios', 'guardrails', 'performance', 'verification', 'system'] as Tab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -405,19 +416,31 @@ export function ProductionDemo() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Rules Loaded</span>
-                    <span className="text-white">{performanceMetrics.rulesEvaluated}</span>
+                    <span className="text-white">{performanceMetrics.rulesLoaded}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Compiled Rules</span>
+                    <span className="text-white">{performanceMetrics.compiledRules}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Cache Hit Rate</span>
-                    <span className="text-green-400">{performanceMetrics.cacheHitRate}%</span>
+                    <span className="text-green-400">{(performanceMetrics.cacheHitRate * 100).toFixed(1)}%</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Memory Usage</span>
-                    <span className="text-white">{performanceMetrics.memoryMb} MB</span>
+                    <span className="text-slate-400">Cache Size</span>
+                    <span className="text-white">{performanceMetrics.cacheSize} entries</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Cache Hits/Misses</span>
+                    <span className="text-white">{performanceMetrics.cacheHits}/{performanceMetrics.cacheMisses}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Engine Status</span>
-                    <StatusBadge status="success" label="Healthy" size="sm" />
+                    <StatusBadge
+                      status={healthData?.status === 'healthy' ? 'success' : 'error'}
+                      label={healthData?.status?.toUpperCase() ?? 'CHECKING'}
+                      size="sm"
+                    />
                   </div>
                 </div>
               </div>
@@ -491,6 +514,118 @@ export function ProductionDemo() {
                 All critical consistency checks passed. 1 warning for potentially unreachable conditions in
                 edge-case scenarios. Overall rule base health: <strong className="text-green-400">Good</strong>
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* System Tab */}
+        {activeTab === 'system' && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-white">System Status</h3>
+
+            {/* Health Status */}
+            <div className="p-4 bg-slate-700 rounded-lg flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span
+                  className={`w-3 h-3 rounded-full ${
+                    healthData?.status === 'healthy' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                  }`}
+                />
+                <span className="font-medium text-white">Service Health</span>
+              </div>
+              <StatusBadge
+                status={healthData?.status === 'healthy' ? 'success' : 'error'}
+                label={healthData?.status?.toUpperCase() ?? 'CHECKING'}
+              />
+            </div>
+
+            {/* Security Features */}
+            <div className="p-4 bg-slate-700 rounded-lg">
+              <h4 className="font-medium text-white mb-4">Security Features</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <FeatureToggle
+                  label="Rate Limiting"
+                  enabled={sysConfig?.features.rate_limiting}
+                  detail={sysConfig?.features.rate_limit}
+                />
+                <FeatureToggle
+                  label="API Authentication"
+                  enabled={sysConfig?.features.auth_required}
+                />
+                <FeatureToggle
+                  label="Security Headers"
+                  enabled={true}
+                  detail="X-Frame-Options, CSP"
+                />
+                <FeatureToggle
+                  label="Audit Logging"
+                  enabled={sysConfig?.features.audit_logging}
+                />
+              </div>
+            </div>
+
+            {/* Observability Features */}
+            <div className="p-4 bg-slate-700 rounded-lg">
+              <h4 className="font-medium text-white mb-4">Observability</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <FeatureToggle
+                  label="OpenTelemetry Tracing"
+                  enabled={sysConfig?.features.tracing}
+                />
+                <FeatureToggle
+                  label="Prometheus Metrics"
+                  enabled={true}
+                  detail="/metrics endpoint"
+                />
+                <FeatureToggle
+                  label="Structured Logging"
+                  enabled={sysConfig?.observability.log_format === 'json'}
+                  detail={sysConfig?.observability.log_format}
+                />
+                <FeatureToggle
+                  label="Request Correlation"
+                  enabled={true}
+                  detail="X-Request-ID header"
+                />
+              </div>
+            </div>
+
+            {/* Database Stats */}
+            <div className="p-4 bg-slate-700 rounded-lg">
+              <h4 className="font-medium text-white mb-4">Database Statistics</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-3 bg-slate-600/50 rounded">
+                  <p className="text-xs text-slate-400">Total Rules</p>
+                  <p className="text-xl font-bold text-white">{dbStats?.rules_count ?? '—'}</p>
+                </div>
+                <div className="p-3 bg-slate-600/50 rounded">
+                  <p className="text-xs text-slate-400">Compiled</p>
+                  <p className="text-xl font-bold text-green-400">{dbStats?.compiled_rules_count ?? '—'}</p>
+                </div>
+                <div className="p-3 bg-slate-600/50 rounded">
+                  <p className="text-xs text-slate-400">Reviews</p>
+                  <p className="text-xl font-bold text-white">{dbStats?.reviews_count ?? '—'}</p>
+                </div>
+                <div className="p-3 bg-slate-600/50 rounded">
+                  <p className="text-xs text-slate-400">Premise Keys</p>
+                  <p className="text-xl font-bold text-white">{dbStats?.premise_keys_count ?? '—'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Service Info */}
+            <div className="p-4 bg-primary-600/10 border border-primary-500/30 rounded-lg">
+              <h4 className="font-medium text-primary-400 mb-2">Service Information</h4>
+              <div className="text-sm text-slate-300 space-y-1">
+                <p>
+                  <span className="text-slate-400">Service Name:</span>{' '}
+                  {sysConfig?.observability.service_name ?? '—'}
+                </p>
+                <p>
+                  <span className="text-slate-400">Log Level:</span>{' '}
+                  {sysConfig?.observability.log_level ?? '—'}
+                </p>
+              </div>
             </div>
           </div>
         )}
